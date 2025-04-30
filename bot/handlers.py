@@ -152,11 +152,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id, msg_id = map(int, payload.split(":", 1))
 
     stored = PENDING.pop((chat_id, msg_id), None)
-    text = stored[0] if stored else None
-    offender = stored[1] if stored else "Пользователь"
+    text, offender = stored if stored else (None, "Пользователь")
 
+    # ───────────────  SPAM  ─────────────────────────────────────────────
     if action == "spam":
-        # гарантируем удаление
         try:
             await context.bot.delete_message(chat_id, msg_id)
         except Exception:
@@ -164,17 +163,21 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         await _announce_block(context, chat_id, offender, by_moderator=True)
 
-        # добавляем в датасет только подтверждённый спам
+        # сохраняем в датасет как «1»
         added = text and classifier.update_dataset(text, 1)
         info = "Спам заблокирован."
         if added:
             info += " Новый пример добавлен в датасет 🙂"
-        else:  # ham  ───────────────────────────────────────────────────────────
-            added = text and classifier.update_dataset(text, 0)
-            info = "Сообщение помечено как НЕ спам."
-            if added:
-                info += "Пример сохранён в датасет 🙂"
 
+    # ───────────────  HAM  ──────────────────────────────────────────────
+    else:  # ham
+        # добавляем в датасет как «0»
+        added = text and classifier.update_dataset(text, 0)
+        info = "Сообщение помечено как НЕ спам."
+        if added:
+            info += " Пример сохранён в датасет 🙂"
+
+    # обновляем карточку модератору
     await q.edit_message_reply_markup(reply_markup=None)
     await q.edit_message_text(f"<i>{html.escape(info)}</i>", parse_mode=ParseMode.HTML)
 
