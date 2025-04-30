@@ -1,6 +1,7 @@
 # bot/handlers.py
 from __future__ import annotations
 
+import time
 import csv
 import html
 from pathlib import Path
@@ -110,7 +111,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     LOGGER.info("✋ SUSPECT %s…", text[:60])
 
     # ─ карточка модератору
-    link = _msg_link(msg) 
+    link = _msg_link(msg)
     preview = html.escape(text[:150] + ("…" if len(text) > 150 else ""))
     card = (
         "<b>Подозрительное сообщение</b>\n"
@@ -196,19 +197,22 @@ async def cmd_status(update: Update, _):
     ds = Path(classifier.dataset_path)
     size_kb = ds.stat().st_size // 1024 if ds.exists() else 0
     await update.effective_message.reply_html(
-        f"<b>Status</b>\n"
-        f"Dataset: <code>{ds.name}</code> • <code>{size_kb} KiB</code> • "
-        f"<code>{_dataset_rows()} samples</code>\n"
-        f"Policy: <code>{SPAM_POLICY}</code>\n"
-        f"Announce: <code>{'ON' if ANNOUNCE_BLOCKS else 'OFF'}</code>"
-    )
+        "<b>📊 Статус антиспам-системы</b>\n\n"
 
+        f"<b>📁 Датасет:</b> <code>{ds.name}</code> — название используемого набора данных\n"
+        f"<b>📦 Размер:</b> <code>{size_kb} КиБ</code> — объём загруженного датасета\n"
+        f"<b>🔢 Кол-во записей:</b> <code>{_dataset_rows()} строк</code> — количество примеров (сообщений) для анализа\n\n"
+
+        f"<b>🛡️ Политика блокировки:</b> <code>{SPAM_POLICY}</code> — активный метод определения спама\n"
+        f"<b>📣 Объявления о блоках:</b> <code>{'ВКЛ' if ANNOUNCE_BLOCKS else 'ВЫКЛ'}</code> — уведомлять ли чат о блокировках"
+    )
 
 async def cmd_retrain(update: Update, _):
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
     await update.effective_message.reply_text("⏳ Переобучаю модель…")
     classifier.train()
+    time.sleep(5)
     await update.effective_message.reply_text("✅ Модель переобучена.")
 
 
@@ -243,26 +247,53 @@ async def cmd_announce(update: Update, _):
 
 
 async def cmd_start(update: Update, _):
-    await update.effective_message.reply_text(
-        "Анти-спам бот активен. Подозрительные сообщения скрываются "
-        "и отправляются модераторам."
-    )
+    user = update.effective_user
+    if not user:
+        return
 
+    if is_whitelisted(user.id):
+        text = (
+            "✅ Анти-спам бот запущен.\n"
+            "Вы модератор: сообщения будут автоматически направляться вам для проверки."
+        )
+    else:
+        text = (
+            "👋 Привет! Я слежу за чистотой в чате и скрываю подозрительные сообщения.\n"
+            "Если вы случайно потеряли сообщение — его могли отправить на модерацию."
+        )
+
+    await update.effective_message.reply_text(text)
 
 async def cmd_help(update: Update, _):
-    await update.effective_message.reply_text(
-        "SPAM_POLICY:\n"
-        " • notify – ждать решения модератора\n"
-        " • delete – сразу удалить сообщение\n"
-        " • kick   – удалить и временно кикнуть автора\n\n"
-        "Команды: /status, /retrain, /policy, /announce"
-    )
+    user = update.effective_user
+    if not user:
+        return
 
+    if is_whitelisted(user.id):
+        await update.effective_message.reply_html(
+            "📖 <b>Помощь по антиспам-боту</b>\n\n"
+            "<b>🛡️ SPAM_POLICY</b> — как бот реагирует на подозрительные сообщения:\n"
+            " • <code>notify</code> — сообщение остаётся, модератор получает уведомление\n"
+            " • <code>delete</code> — сообщение удаляется автоматически\n"
+            " • <code>kick</code> — сообщение удаляется, автор временно исключается\n\n"
+            "<b>⚙️ Команды:</b>\n"
+            " • <b>/status</b> — показать параметры антиспама\n"
+            " • <b>/retrain</b> — переобучить модель\n"
+            " • <b>/policy [тип]</b> — изменить режим (например: <code>/policy delete</code>)\n"
+            " • <b>/announce [on/off]</b> — включить/выключить уведомления о блокировках"
+        )
+    else:
+        await update.effective_message.reply_html(
+            "👋 <b>Привет!</b>\n"
+            "Я — бот-модератор беседы одного из филиалов <b>Жизнь Март</b>.\n"
+            "Помогаю сохранять порядок, фильтрую спам и работаю с модераторами.\n\n"
+            "Если ваше сообщение исчезло — возможно, оно было отправлено на проверку."
+        )
 
 # ─────────────────────────────  REGISTRATION
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start",    cmd_start))
-    app.add_handler(CommandHandler("help",     cmd_help))
+    app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status",   cmd_status))
     app.add_handler(CommandHandler("retrain",  cmd_retrain))
     app.add_handler(CommandHandler("policy",   cmd_policy))
