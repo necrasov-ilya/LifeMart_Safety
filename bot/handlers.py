@@ -169,8 +169,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         info = "Спам заблокирован."
         if added:
             info += " Новый пример добавлен в датасет 🙂"
-    else:  # ham
-        info = "OK, это не спам."
+        else:  # ham  ───────────────────────────────────────────────────────────
+            added = text and classifier.update_dataset(text, 0)
+            info = "Сообщение помечено как НЕ спам."
+            if added:
+                info += "Пример сохранён в датасет 🙂"
 
     await q.edit_message_reply_markup(reply_markup=None)
     await q.edit_message_text(f"<i>{html.escape(info)}</i>", parse_mode=ParseMode.HTML)
