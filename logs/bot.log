@@ -2862,3 +2862,186 @@ Traceback (most recent call last):
   File "C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py", line 542, in shutdown
     raise RuntimeError("This Application is still running!")
 RuntimeError: This Application is still running!
+2025-04-30 16:45:30 | INFO     | SpamClassifier | Loading model from C:/Users/evart/OneDrive/Документы/GitHub/LifeMart_Safety/ml/model.pkl
+2025-04-30 16:45:30 | INFO     | bot.core | ▶️  Запуск бота (polling)…
+2025-04-30 16:45:30 | INFO     | bot.core | Создание Telegram Application…
+2025-04-30 16:45:30 | INFO     | bot.core | Application готово.
+2025-04-30 16:45:30 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getMe "HTTP/1.1 200 OK"
+2025-04-30 16:45:30 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteWebhook "HTTP/1.1 200 OK"
+2025-04-30 16:45:30 | INFO     | telegram.ext.Application | Application started
+2025-04-30 16:45:41 | INFO     | bot.core | Получен сигнал 2 — остановка…
+2025-04-30 16:45:41 | ERROR    | asyncio | Task exception was never retrieved
+future: <Task finished name='Task-10' coro=<Application.shutdown() done, defined at C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py:523> exception=RuntimeError('This Application is still running!')>
+Traceback (most recent call last):
+  File "C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py", line 542, in shutdown
+    raise RuntimeError("This Application is still running!")
+RuntimeError: This Application is still running!
+2025-04-30 16:45:56 | INFO     | SpamClassifier | Loading model from C:/Users/evart/OneDrive/Документы/GitHub/LifeMart_Safety/ml/model.pkl
+2025-04-30 16:45:56 | INFO     | bot.core | ▶️  Запуск бота (polling)…
+2025-04-30 16:45:56 | INFO     | bot.core | Создание Telegram Application…
+2025-04-30 16:45:56 | INFO     | bot.core | Application готово.
+2025-04-30 16:45:56 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getMe "HTTP/1.1 200 OK"
+2025-04-30 16:45:56 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteWebhook "HTTP/1.1 200 OK"
+2025-04-30 16:45:56 | INFO     | telegram.ext.Application | Application started
+2025-04-30 16:46:06 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:46:11 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:46:12 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:46:17 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:46:17 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:46:26 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:46:26 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:46:32 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:46:32 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:46:37 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:46:38 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:46:47 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:46:51 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:47:01 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:47:11 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:47:21 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:47:24 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:47:31 | INFO     | bot.core | Получен сигнал 2 — остановка…
+2025-04-30 16:47:31 | ERROR    | asyncio | Task exception was never retrieved
+future: <Task finished name='Task-14' coro=<Application.shutdown() done, defined at C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py:523> exception=RuntimeError('This Application is still running!')>
+Traceback (most recent call last):
+  File "C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py", line 542, in shutdown
+    raise RuntimeError("This Application is still running!")
+RuntimeError: This Application is still running!
+2025-04-30 16:47:35 | INFO     | SpamClassifier | Loading model from C:/Users/evart/OneDrive/Документы/GitHub/LifeMart_Safety/ml/model.pkl
+2025-04-30 16:47:35 | INFO     | bot.core | ▶️  Запуск бота (polling)…
+2025-04-30 16:47:35 | INFO     | bot.core | Создание Telegram Application…
+2025-04-30 16:47:35 | INFO     | bot.core | Application готово.
+2025-04-30 16:47:36 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getMe "HTTP/1.1 200 OK"
+2025-04-30 16:47:36 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteWebhook "HTTP/1.1 200 OK"
+2025-04-30 16:47:36 | INFO     | telegram.ext.Application | Application started
+2025-04-30 16:47:41 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:47:51 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:47:56 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:07 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:17 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:17 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:18 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:48:27 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:28 | INFO     | bot.core | Получен сигнал 2 — остановка…
+2025-04-30 16:48:28 | ERROR    | asyncio | Task exception was never retrieved
+future: <Task finished name='Task-11' coro=<Application.shutdown() done, defined at C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py:523> exception=RuntimeError('This Application is still running!')>
+Traceback (most recent call last):
+  File "C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py", line 542, in shutdown
+    raise RuntimeError("This Application is still running!")
+RuntimeError: This Application is still running!
+2025-04-30 16:48:33 | INFO     | SpamClassifier | Loading model from C:/Users/evart/OneDrive/Документы/GitHub/LifeMart_Safety/ml/model.pkl
+2025-04-30 16:48:33 | INFO     | bot.core | ▶️  Запуск бота (polling)…
+2025-04-30 16:48:33 | INFO     | bot.core | Создание Telegram Application…
+2025-04-30 16:48:33 | INFO     | bot.core | Application готово.
+2025-04-30 16:48:34 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getMe "HTTP/1.1 200 OK"
+2025-04-30 16:48:34 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteWebhook "HTTP/1.1 200 OK"
+2025-04-30 16:48:34 | INFO     | telegram.ext.Application | Application started
+2025-04-30 16:48:37 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:37 | INFO     | bot.handlers | ✋ SUSPECT Прuвет всем, хoчу предлoжuть реaльный дoпoлнuтельный зaрaбoт…
+2025-04-30 16:48:37 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:48:42 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:42 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/answerCallbackQuery "HTTP/1.1 200 OK"
+2025-04-30 16:48:42 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteMessage "HTTP/1.1 200 OK"
+2025-04-30 16:48:42 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:48:42 | INFO     | SpamClassifier | Added new sample to dataset: Прuвет всем, хoчу предлoжuть реaльный дoпoлнuтельный зaрaбoт… | label=1
+2025-04-30 16:48:42 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageReplyMarkup "HTTP/1.1 200 OK"
+2025-04-30 16:48:42 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageText "HTTP/1.1 200 OK"
+2025-04-30 16:48:52 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:53 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:59 | INFO     | bot.core | Получен сигнал 2 — остановка…
+2025-04-30 16:48:59 | ERROR    | asyncio | Task exception was never retrieved
+future: <Task finished name='Task-10' coro=<Application.shutdown() done, defined at C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py:523> exception=RuntimeError('This Application is still running!')>
+Traceback (most recent call last):
+  File "C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py", line 542, in shutdown
+    raise RuntimeError("This Application is still running!")
+RuntimeError: This Application is still running!
+2025-04-30 16:48:59 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:48:59 | INFO     | telegram.ext.Application | Application is stopping. This might take a moment.
+2025-04-30 16:48:59 | INFO     | telegram.ext.Application | Application.stop() complete
+2025-04-30 16:48:59 | INFO     | bot.core | Бот завершил работу.
+2025-04-30 16:49:01 | INFO     | SpamClassifier | Loading model from C:/Users/evart/OneDrive/Документы/GitHub/LifeMart_Safety/ml/model.pkl
+2025-04-30 16:49:01 | INFO     | bot.core | ▶️  Запуск бота (polling)…
+2025-04-30 16:49:01 | INFO     | bot.core | Создание Telegram Application…
+2025-04-30 16:49:01 | INFO     | bot.core | Application готово.
+2025-04-30 16:49:01 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getMe "HTTP/1.1 200 OK"
+2025-04-30 16:49:01 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteWebhook "HTTP/1.1 200 OK"
+2025-04-30 16:49:01 | INFO     | telegram.ext.Application | Application started
+2025-04-30 16:49:08 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:49:18 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:49:21 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:49:21 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:49:24 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:49:27 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:49:37 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:49:47 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:49:57 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:07 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:17 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:27 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:28 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:39 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:39 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:39 | INFO     | bot.handlers | ✋ SUSPECT УДАЛЁНКА!!!!…
+2025-04-30 16:50:39 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:50:44 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:44 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/answerCallbackQuery "HTTP/1.1 200 OK"
+2025-04-30 16:50:44 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteMessage "HTTP/1.1 200 OK"
+2025-04-30 16:50:44 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:50:44 | INFO     | SpamClassifier | Added new sample to dataset: УДАЛЁНКА!!!!… | label=1
+2025-04-30 16:50:44 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageReplyMarkup "HTTP/1.1 200 OK"
+2025-04-30 16:50:45 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageText "HTTP/1.1 200 OK"
+2025-04-30 16:50:54 | INFO     | bot.core | Получен сигнал 2 — остановка…
+2025-04-30 16:50:54 | ERROR    | asyncio | Task exception was never retrieved
+future: <Task finished name='Task-12' coro=<Application.shutdown() done, defined at C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py:523> exception=RuntimeError('This Application is still running!')>
+Traceback (most recent call last):
+  File "C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py", line 542, in shutdown
+    raise RuntimeError("This Application is still running!")
+RuntimeError: This Application is still running!
+2025-04-30 16:50:54 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:50:54 | INFO     | telegram.ext.Application | Application is stopping. This might take a moment.
+2025-04-30 16:50:54 | INFO     | telegram.ext.Application | Application.stop() complete
+2025-04-30 16:50:54 | INFO     | bot.core | Бот завершил работу.
+2025-04-30 16:51:02 | INFO     | SpamClassifier | Loading model from C:/Users/evart/OneDrive/Документы/GitHub/LifeMart_Safety/ml/model.pkl
+2025-04-30 16:51:02 | INFO     | bot.core | ▶️  Запуск бота (polling)…
+2025-04-30 16:51:02 | INFO     | bot.core | Создание Telegram Application…
+2025-04-30 16:51:02 | INFO     | bot.core | Application готово.
+2025-04-30 16:51:02 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getMe "HTTP/1.1 200 OK"
+2025-04-30 16:51:02 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteWebhook "HTTP/1.1 200 OK"
+2025-04-30 16:51:02 | INFO     | telegram.ext.Application | Application started
+2025-04-30 16:51:12 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:14 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:14 | INFO     | bot.handlers | ✋ SUSPECT ахахахахах удалёнка завтра!!!…
+2025-04-30 16:51:14 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:51:23 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:24 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/answerCallbackQuery "HTTP/1.1 200 OK"
+2025-04-30 16:51:24 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteMessage "HTTP/1.1 200 OK"
+2025-04-30 16:51:24 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:51:24 | INFO     | SpamClassifier | Added new sample to dataset: ахахахахах удалёнка завтра!!!… | label=1
+2025-04-30 16:51:24 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageReplyMarkup "HTTP/1.1 200 OK"
+2025-04-30 16:51:24 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageText "HTTP/1.1 200 OK"
+2025-04-30 16:51:28 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:29 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:51:37 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:37 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:51:47 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:47 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:47 | INFO     | bot.handlers | ✋ SUSPECT ахахахахах удалёнка завтра!!!…
+2025-04-30 16:51:48 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/sendMessage "HTTP/1.1 200 OK"
+2025-04-30 16:51:51 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:51:51 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/answerCallbackQuery "HTTP/1.1 200 OK"
+2025-04-30 16:51:52 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/deleteMessage "HTTP/1.1 200 OK"
+2025-04-30 16:51:52 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageReplyMarkup "HTTP/1.1 200 OK"
+2025-04-30 16:51:52 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/editMessageText "HTTP/1.1 200 OK"
+2025-04-30 16:52:00 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:52:10 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:52:17 | INFO     | bot.core | Получен сигнал 2 — остановка…
+2025-04-30 16:52:17 | ERROR    | asyncio | Task exception was never retrieved
+future: <Task finished name='Task-14' coro=<Application.shutdown() done, defined at C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py:523> exception=RuntimeError('This Application is still running!')>
+Traceback (most recent call last):
+  File "C:\Users\evart\OneDrive\Документы\GitHub\LifeMart_Safety\.venv\Lib\site-packages\telegram\ext\_application.py", line 542, in shutdown
+    raise RuntimeError("This Application is still running!")
+RuntimeError: This Application is still running!
+2025-04-30 16:52:17 | INFO     | httpx | HTTP Request: POST https://api.telegram.org/bot8081269722:AAG9RvdiX6sITmub0ls0MHWPudeO4RQT0XQ/getUpdates "HTTP/1.1 200 OK"
+2025-04-30 16:52:17 | INFO     | telegram.ext.Application | Application is stopping. This might take a moment.
+2025-04-30 16:52:17 | INFO     | telegram.ext.Application | Application.stop() complete
+2025-04-30 16:52:17 | INFO     | bot.core | Бот завершил работу.
