@@ -43,6 +43,22 @@ ANNOUNCE_BLOCKS: bool = settings.ANNOUNCE_BLOCKS
 def is_whitelisted(uid: int) -> bool:
     return uid in settings.WHITELIST_USER_IDS
 
+def is_explicit_command(update: Update) -> bool:
+    msg = update.effective_message
+    if not msg:
+        return False
+
+    if msg.chat_id == settings.MODERATOR_CHAT_ID:
+        return True
+
+    entities = msg.entities or []
+    for ent in entities:
+        if ent.type == "bot_command":
+            command_text = msg.text[ent.offset : ent.offset + ent.length]
+            if "@" in command_text:
+                return True
+    return False
+
 
 def kb_mod(chat_id: int, msg_id: int) -> InlineKeyboardMarkup:
     payload = f"{chat_id}:{msg_id}"
@@ -247,6 +263,10 @@ async def cmd_announce(update: Update, _):
 
 
 async def cmd_start(update: Update, _):
+
+    if not is_explicit_command(update):
+        return
+
     user = update.effective_user
     if not user:
         return
@@ -265,6 +285,9 @@ async def cmd_start(update: Update, _):
     await update.effective_message.reply_text(text)
 
 async def cmd_help(update: Update, _):
+    if not is_explicit_command(update):
+        return
+
     user = update.effective_user
     if not user:
         return
