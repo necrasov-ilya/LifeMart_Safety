@@ -54,6 +54,13 @@ def kb_mod(chat_id: int, msg_id: int) -> InlineKeyboardMarkup:
         ]
     )
 
+def _msg_link(msg: Message) -> str:
+
+    if msg.chat.username:                                   # публичная группа
+        return f"https://t.me/{msg.chat.username}/{msg.message_id}"
+    return f"https://t.me/c/{abs(msg.chat_id)}/{msg.message_id}"
+
+
 
 async def _announce_block(
     context: ContextTypes.DEFAULT_TYPE,
@@ -95,7 +102,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     # rule-based эвристика + ML-классификация
-    hot_words = ("заработ", "удалёнк", "pиши", "$", "работ", "spam")
+    hot_words = ("заработ", "удалёнк", "казино", "$", "работ", "spam")
     pred = 1 if any(w in text.lower() for w in hot_words) else classifier.predict(text)
     if pred != 1:
         return
@@ -103,7 +110,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     LOGGER.info("✋ SUSPECT %s…", text[:60])
 
     # ─ карточка модератору
-    link = f"https://t.me/c/{abs(msg.chat_id)}/{msg.message_id}"
+    link = _msg_link(msg) 
     preview = html.escape(text[:150] + ("…" if len(text) > 150 else ""))
     card = (
         "<b>Подозрительное сообщение</b>\n"
