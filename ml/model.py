@@ -73,6 +73,12 @@ class SpamClassifier:
             raise RuntimeError("Model is not loaded.")
         return int(self.model.predict([text])[0])
 
+    def predict_proba(self, text: str) -> float:
+        """Вернуть вероятность того, что сообщение — спам (от 0.0 до 1.0)."""
+        if not self.model:
+            raise RuntimeError("Model is not loaded.")
+        return float(self.model.predict_proba([text])[0][1])  # вероятность класса 1 (спам)
+
     def update_dataset(self, message: str, label: int, *, autosave: bool = True) -> None:
         """
         Добавить новый пример и, при необходимости, переобучить модель.
@@ -160,4 +166,4 @@ if __name__ == "__main__":  # pragma: no cover
     logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
     clf = SpamClassifier()
     sample = "Зарабатывай от 500 $ в день! Пиши «+»."
-    print(f'"{sample}" →', clf.predict(sample))
+    print(f'"{sample}" → {clf.predict(sample)} | proba={clf.predict_proba(sample):.3f}')

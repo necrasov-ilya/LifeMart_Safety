@@ -37,6 +37,7 @@ PENDING: Dict[Tuple[int, int], Tuple[str, str]] = {}
 
 SPAM_POLICY: str = settings.SPAM_POLICY          # notify | delete | kick
 ANNOUNCE_BLOCKS: bool = settings.ANNOUNCE_BLOCKS
+SPAM_THRESHOLD: float = settings.SPAM_THRESHOLD if hasattr(settings, "SPAM_THRESHOLD") else 0.6
 
 
 # ─────────────────────────────  HELPERS
@@ -120,7 +121,13 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     # rule-based эвристика + ML-классификация
     hot_words = ("заработ", "удалёнк", "казино", "$", "работ", "spam")
-    pred = 1 if any(w in text.lower() for w in hot_words) else classifier.predict(text)
+
+    if any(w in text.lower() for w in hot_words):
+        pred = 1
+    else:
+        proba = classifier.predict_proba(text)
+        pred = 1 if proba >= SPAM_THRESHOLD else 0
+
     if pred != 1:
         return
 
@@ -223,6 +230,7 @@ async def cmd_status(update: Update, _):
         f"<b>📣 Объявления о блоках:</b> <code>{'ВКЛ' if ANNOUNCE_BLOCKS else 'ВЫКЛ'}</code> — уведомлять ли чат о блокировках"
     )
 
+
 async def cmd_retrain(update: Update, _):
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
@@ -260,6 +268,41 @@ async def cmd_announce(update: Update, _):
         await update.message.reply_text(
             f"Уведомления сейчас: {state}\nИспользование: /announce on|off"
         )
+
+
+async def cmd_threshold(update: Update, _):
+    if not update.effective_user or not is_whitelisted(update.effective_user.id):
+        return
+    global SPAM_THRESHOLD
+    args = update.message.text.split(maxsplit=1)
+    if len(args) == 2:
+        try:
+            val = float(args[1])
+            if 0.0 <= val <= 1.0:
+                SPAM_THRESHOLD = val
+                await update.message.reply_text(
+                    f"✅ Порог обновлён: {SPAM_THRESHOLD:.2f}",
+                    reply_markup=InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("➖ 0.1", callback_data="threshold:-0.1"),
+                            InlineKeyboardButton("➕ 0.1", callback_data="threshold:+0.1")
+                        ]
+                    ])
+                )
+                return
+        except ValueError:
+            pass
+
+    await update.message.reply_text(
+        f"Текущий порог: {SPAM_THRESHOLD:.2f}\n"
+        "Использование: /threshold 0.3 (от 0 до 1)",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("➖ 0.1", callback_data="threshold:-0.1"),
+                InlineKeyboardButton("➕ 0.1", callback_data="threshold:+0.1")
+            ]
+        ])
+    )
 
 
 async def cmd_start(update: Update, _):
