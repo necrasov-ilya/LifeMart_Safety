@@ -142,8 +142,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         disable_web_page_preview=True,
     )
 
-    # сохраняем для последующей обработки
-    PENDING[(msg.chat_id, msg.message_id)] = (text, msg.from_user.full_name)
+    PENDING[(msg.chat_id, msg.message_id)] = (text, msg.from_user.full_name, msg.from_user.id)
 
     # ─ автоматические действия согласно политике
     auto_deleted = False
@@ -176,7 +175,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     chat_id, msg_id = map(int, payload.split(":", 1))
 
     stored = PENDING.pop((chat_id, msg_id), None)
-    text, offender = stored if stored else (None, "Пользователь")
+    if stored:
+        text, offender, offender_id = stored
+    else:
+        text, offender, offender_id = None, "Пользователь", None
 
     if action == "spam":
         try:
@@ -185,11 +187,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             pass
 
         try:
-            offender_id = None
-            if update.effective_message and update.effective_message.reply_to_message:
-                offender_id = update.effective_message.reply_to_message.from_user.id
-
-            if offender_id:
+            if offender_id and isinstance(offender_id, int) and offender_id > 0:
                 await context.bot.ban_chat_member(chat_id, offender_id)
                 info = "⛔ Сообщение удалено, пользователь забанен."
             else:
@@ -199,7 +197,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         await _announce_block(context, chat_id, offender, by_moderator=True)
 
-        # Обновляем датасет: добавляем как спам
         added = text and classifier.update_dataset(text, 1)
         if added:
             info += " Сообщение сохранено как пример СПАМА 🙂"
@@ -215,9 +212,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await q.edit_message_reply_markup(reply_markup=None)
     await q.edit_message_text(f"<i>{html.escape(info)}</i>", parse_mode=ParseMode.HTML)
-
-
-
 # ─────────────────────────────  ADMIN COMMANDS
 async def cmd_status(update: Update, _):
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
