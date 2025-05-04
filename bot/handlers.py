@@ -67,6 +67,7 @@ def kb_mod(chat_id: int, msg_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton("🚫 Спам", callback_data=f"spam:{payload}"),
                 InlineKeyboardButton("✅ Не спам", callback_data=f"ham:{payload}"),
+                InlineKeyboardButton("⛔ Бан", callback_data=f"ban:{payload}"),
             ]
         ]
     )
@@ -178,7 +179,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     stored = PENDING.pop((chat_id, msg_id), None)
     text, offender = stored if stored else (None, "Пользователь")
 
-    # ───────────────  SPAM  ─────────────────────────────────────────────
     if action == "spam":
         try:
             await context.bot.delete_message(chat_id, msg_id)
@@ -187,23 +187,45 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         await _announce_block(context, chat_id, offender, by_moderator=True)
 
-        # сохраняем в датасет как «1»
         added = text and classifier.update_dataset(text, 1)
         info = "Спам заблокирован."
         if added:
             info += " Новый пример добавлен в датасет 🙂"
 
-    # ───────────────  HAM  ──────────────────────────────────────────────
-    else:  # ham
-        # добавляем в датасет как «0»
+    elif action == "ham":
         added = text and classifier.update_dataset(text, 0)
         info = "Сообщение помечено как НЕ спам."
         if added:
             info += " Пример сохранён в датасет 🙂"
 
-    # обновляем карточку модератору
+
+    elif action == "ban":
+        try:
+            offender_id = None
+            if stored and update.effective_message:
+                offender_id = update.effective_message.reply_to_message.from_user.id if update.effective_message.reply_to_message else None
+            if not offender_id and stored:
+                offender_id = update.callback_query.from_user.id
+            if offender_id:
+                await context.bot.ban_chat_member(chat_id, offender_id)
+                added = text and classifier.update_dataset(text, 1)
+
+                info = "⛔ Пользователь перманентно забанен."
+
+                if added:
+                    info += " Сообщение сохранено как пример СПАМА 🙂"
+            else:
+                info = "⛔ Не удалось определить пользователя для бана."
+
+        except Exception as e:
+            info = f"Ошибка при перманентном бане: {e}"
+
+    else:
+        info = "Неизвестное действие."
+
     await q.edit_message_reply_markup(reply_markup=None)
     await q.edit_message_text(f"<i>{html.escape(info)}</i>", parse_mode=ParseMode.HTML)
+
 
 
 # ─────────────────────────────  ADMIN COMMANDS
@@ -322,5 +344,5 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("policy",   cmd_policy))
     app.add_handler(CommandHandler("announce", cmd_announce))
 
-    app.add_handler(CallbackQueryHandler(on_callback, pattern="^(spam|ham):"))
+    app.add_handler(CallbackQueryHandler(on_callback, pattern="^(spam|ham|ban):"))
     app.add_handler(MessageHandler(filters.TEXT | filters.CaptionRegex(".*"), on_message))

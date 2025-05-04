@@ -1,2 +1,4 @@
-".env" 
+".env"
+".idea" 
 "logs/*.log"
+"data/*.csv"
