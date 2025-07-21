@@ -34,6 +34,9 @@ BOT_COMMANDS: List[BotCommand] = [
     BotCommand("help", "Краткая справка"),
     BotCommand("status", "Статус модели (whitelist)"),
     BotCommand("retrain", "Ручное переобучение (whitelist)"),
+    BotCommand("givemoderator", "Добавить модератора (whitelist)"),
+    BotCommand("moderators", "Список модераторов (whitelist)"),
+    BotCommand("stats", "Подробная статистика (whitelist)"),
 ]
 
 
@@ -51,9 +54,9 @@ def build_application() -> Application:
         .build()
     )
 
-    # Меню-команды
-    if BOT_COMMANDS:
-        app.bot.set_my_commands(BOT_COMMANDS)
+    # Меню-команды (убираем синхронный вызов)
+    # if BOT_COMMANDS:
+    #     app.bot.set_my_commands(BOT_COMMANDS)
 
     # Подключаем все хэндлеры (message, callback, commands)
     register_handlers(app)

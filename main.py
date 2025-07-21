@@ -46,7 +46,7 @@ if not settings.BOT_TOKEN or not settings.MODERATOR_CHAT_ID:
 # ───────────────────────────────
 # 4) Старт Telegram-бота (polling)
 # ───────────────────────────────
-from bot.core import run_polling  # noqa: E402
+from bot.core import run_polling
 
 if __name__ == "__main__":
     try:

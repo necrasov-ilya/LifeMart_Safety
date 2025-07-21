@@ -1,4 +1,51 @@
-".env"
-".idea" 
-"logs/*.log"
-"data/*.csv"
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data & logs
+/data/
+/logs/
+*.db
+*.csv
+*.pkl
+
+# Model artifacts
+ml/model.pkl
+
+# Env/config
+.env
+*.env
+config/local_config.py
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Jupyter
+*.ipynb_checkpoints
+
+# Misc
+*.bak
+*.tmp
+
+# Allow README, LICENSE, requirements.txt
+!README.md
+!LICENSE
+!requirements.txt
+.env
+.env
