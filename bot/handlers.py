@@ -1237,5 +1237,10 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("checkword", cmd_checkword))
 
     # Обработчики callback-ов и сообщений (расширенные паттерны)
-    app.add_handler(CallbackQueryHandler(on_callback, pattern="^(spam|ham|confirm_mod|cancel_mod|menu_|settings_|policy_|mod_|prof_|add_word|cancel_action|logs_full):"))
+    app.add_handler(
+        CallbackQueryHandler(
+            on_callback,
+            pattern=r"^(spam:|ham:|confirm_mod:|cancel_mod:|add_word:|menu_|settings_|policy_|mod_|prof_|cancel_action|logs_full)"
+        )
+    )
     app.add_handler(MessageHandler(filters.TEXT | filters.CaptionRegex(".*"), on_message))
