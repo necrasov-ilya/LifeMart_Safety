@@ -1236,7 +1236,9 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("removeword", cmd_removeword))
     app.add_handler(CommandHandler("checkword", cmd_checkword))
 
-    # Обработчики callback-ов и сообщений (расширенные паттерны)
+    # Обработчики callback-ов. Шаблон покрывает все callback_data,
+    # используемые в интерфейсе бота, включая действия вида "spam:123" и
+    # кнопки меню ("menu_main", "settings_policy" и т.д.).
     app.add_handler(
         CallbackQueryHandler(
             on_callback,
