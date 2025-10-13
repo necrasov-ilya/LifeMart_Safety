@@ -11,10 +11,7 @@ def moderator_keyboard(chat_id: int, msg_id: int) -> InlineKeyboardMarkup:
     payload = f"{chat_id}:{msg_id}"
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🚫 Спам и бан", callback_data=f"kick:{payload}"),
-            InlineKeyboardButton("❌ Удалить", callback_data=f"delete:{payload}"),
-        ],
-        [
+            InlineKeyboardButton("🚫 Спам/Бан", callback_data=f"kick:{payload}"),
             InlineKeyboardButton("✅ Не спам", callback_data=f"ham:{payload}"),
         ]
     ])
@@ -37,8 +34,18 @@ def format_moderator_card(
         f"👤 <b>Автор:</b> {html.escape(user_name)}\n"
         f"🔗 <a href='{msg_link}'>Перейти к сообщению</a>\n\n"
         f"📊 <b>Оценка фильтров:</b>\n"
-        f"  🔤 Ключевые слова: <b>{keyword.score:.0%}</b>\n"
     )
+    
+    # Приоритет на embedding (если доступен)
+    if embedding and embedding.score != 0.5:
+        card += f"  🧠 <b>Семантика (приоритет):</b> <b>{embedding.score:.0%}</b>\n"
+        if embedding.details and embedding.details.get("reasoning"):
+            reasoning = embedding.details["reasoning"][:60]
+            card += f"     <i>{reasoning}...</i>\n"
+    else:
+        card += "  🧠 <i>Семантика: недоступна</i>\n"
+    
+    card += f"  🔤 Ключевые слова: <b>{keyword.score:.0%}</b>\n"
     
     if keyword.details and keyword.details.get("matched_keywords"):
         keywords = ", ".join(keyword.details["matched_keywords"][:3])
@@ -46,20 +53,17 @@ def format_moderator_card(
     
     card += f"  📈 TF-IDF модель: <b>{tfidf.score:.0%}</b>\n"
     
-    if embedding:
-        card += f"  🧠 Семантика: <b>{embedding.score:.0%}</b>\n"
-    else:
-        card += "  🧠 Семантика: <i>отключена</i>\n"
-    
     avg_score = analysis.average_score
-    card += f"\n📊 <b>Средняя оценка: {avg_score:.0%}</b>\n\n"
+    card += f"\n📊 <b>Итоговая оценка: {avg_score:.0%}</b>\n\n"
     
     if avg_score >= 0.85:
         recommendation = "⚡️ <b>Рекомендация:</b> Удалить и забанить"
     elif avg_score >= 0.70:
-        recommendation = "⚠️ <b>Рекомендация:</b> Удалить"
-    else:
+        recommendation = "⚠️ <b>Рекомендация:</b> Вероятно спам"
+    elif avg_score >= 0.50:
         recommendation = "🤔 <b>Рекомендация:</b> Требуется проверка"
+    else:
+        recommendation = "ℹ️ <b>Рекомендация:</b> Скорее всего не спам"
     
     card += f"{recommendation}\n\n"
     card += f"💬 <b>Сообщение:</b>\n{preview}"

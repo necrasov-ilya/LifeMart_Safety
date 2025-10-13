@@ -22,9 +22,9 @@ BOT_COMMANDS: List[BotCommand] = [
 ]
 
 
-def build_application() -> Application:
-    LOGGER.info("Создание Telegram Application…")
-
+def run_polling() -> None:
+    LOGGER.info("▶️  Запуск бота (polling)…")
+    
     app = (
         ApplicationBuilder()
         .token(settings.BOT_TOKEN)
@@ -32,31 +32,18 @@ def build_application() -> Application:
         .build()
     )
 
-    if BOT_COMMANDS:
-        app.bot.set_my_commands(BOT_COMMANDS)
-
     register_handlers(app)
 
-    LOGGER.info("Application готово.")
-    return app
+    async def post_init(application: Application) -> None:
+        """Выполняется после инициализации приложения"""
+        if BOT_COMMANDS:
+            await application.bot.set_my_commands(BOT_COMMANDS)
+        LOGGER.info("Application готово.")
 
+    app.post_init = post_init
 
-def run_polling() -> None:
-    LOGGER.info("▶️  Запуск бота (polling)…")
-    application = build_application()
-
-    loop = asyncio.get_event_loop()
-
-    def _ask_exit(sig: int, _frame) -> None:
-        LOGGER.info("Получен сигнал %s — остановка…", sig)
-        loop.create_task(application.shutdown())
-        loop.stop()
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, _ask_exit)
-
-    application.run_polling(
-        stop_signals=None,
+    LOGGER.info("Запуск polling...")
+    app.run_polling(
         allowed_updates=["message", "callback_query"],
     )
     LOGGER.info("Бот завершил работу.")

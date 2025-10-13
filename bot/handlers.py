@@ -104,6 +104,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not msg or not msg.from_user:
         return
 
+    # Временное логирование для определения правильного ID чата
+    LOGGER.info(f"📍 Получено сообщение из чата ID: {msg.chat_id} (тип: {msg.chat.type})")
+
     text = (msg.text or msg.caption or "").strip()
     if not text or msg.chat_id == settings.MODERATOR_CHAT_ID:
         return
@@ -198,19 +201,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         await announce_block(context, chat_id, offender, by_moderator=True)
 
-        if text:
-            dataset_manager.add_sample(text, 1)
-            info += " Сохранено как СПАМ."
-
-    elif action == "delete":
-        try:
-            await context.bot.delete_message(chat_id, msg_id)
-            info = "❌ Сообщение удалено."
-        except Exception as e:
-            info = f"Ошибка при удалении: {e}"
-        
-        await announce_block(context, chat_id, offender, by_moderator=True)
-        
         if text:
             dataset_manager.add_sample(text, 1)
             info += " Сохранено как СПАМ."

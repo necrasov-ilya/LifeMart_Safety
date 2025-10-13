@@ -29,8 +29,23 @@ class MistralAPIProvider(EmbeddingProvider):
             LOGGER.error("httpx not installed. Install with: pip install httpx")
             return 0.5, "httpx not installed"
         
+        # Список спам-индикаторов для семантического анализа
+        spam_indicators = [
+            "заработок денег быстро легко",
+            "криптовалюта инвестиции прибыль гарантия",
+            "работа на дому без опыта",
+            "кликай и зарабатывай",
+            "MLM сетевой маркетинг партнерство",
+            "пассивный доход миллион",
+            "казино ставки выигрыш",
+            "форекс трейдинг биржа",
+            "купить подписчики лайки накрутка",
+            "взлом аккаунт пароль",
+        ]
+        
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Получаем эмбеддинг для текста сообщения
                 response = await client.post(
                     "https://api.mistral.ai/v1/embeddings",
                     headers={
@@ -39,7 +54,7 @@ class MistralAPIProvider(EmbeddingProvider):
                     },
                     json={
                         "model": self.model,
-                        "input": [text]
+                        "input": [text] + spam_indicators
                     }
                 )
                 
@@ -48,21 +63,33 @@ class MistralAPIProvider(EmbeddingProvider):
                     return 0.5, f"API error: {response.status_code}"
                 
                 data = response.json()
-                embedding = data["data"][0]["embedding"]
+                embeddings = [item["embedding"] for item in data["data"]]
                 
-                spam_keywords_embedding = self._get_spam_reference_embedding()
-                similarity = self._cosine_similarity(embedding, spam_keywords_embedding)
+                message_embedding = embeddings[0]
+                spam_embeddings = embeddings[1:]
                 
-                score = max(0.0, min(1.0, similarity))
+                # Вычисляем максимальную схожесть со спам-индикаторами
+                max_similarity = 0.0
+                most_similar_indicator = ""
                 
-                return score, f"Semantic similarity: {similarity:.2f}"
+                for idx, spam_emb in enumerate(spam_embeddings):
+                    similarity = self._cosine_similarity(message_embedding, spam_emb)
+                    if similarity > max_similarity:
+                        max_similarity = similarity
+                        most_similar_indicator = spam_indicators[idx][:30]
+                
+                # Нормализуем от [-1, 1] к [0, 1]
+                # Косинусная схожесть обычно > 0.3 для связанных текстов
+                # > 0.6 для очень похожих текстов
+                normalized_score = max(0.0, min(1.0, (max_similarity - 0.3) / 0.4))
+                
+                reasoning = f"Max similarity: {max_similarity:.2f} ({most_similar_indicator}...)"
+                
+                return normalized_score, reasoning
         
         except Exception as e:
             LOGGER.error(f"Mistral API request failed: {e}")
             return 0.5, f"Error: {str(e)}"
-    
-    def _get_spam_reference_embedding(self) -> list[float]:
-        return [0.0] * 1024
     
     def _cosine_similarity(self, vec1: list[float], vec2: list[float]) -> float:
         if len(vec1) != len(vec2):

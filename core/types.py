@@ -27,10 +27,18 @@ class AnalysisResult:
     
     @property
     def average_score(self) -> float:
-        scores = [self.keyword_result.score, self.tfidf_result.score]
-        if self.embedding_result:
-            scores.append(self.embedding_result.score)
-        return sum(scores) / len(scores)
+        """Взвешенная оценка с приоритетом на embedding модель"""
+        if self.embedding_result and self.embedding_result.score != 0.5:
+            # Embedding модель имеет вес 50%, остальные по 25%
+            return (
+                self.embedding_result.score * 0.5 +
+                self.keyword_result.score * 0.25 +
+                self.tfidf_result.score * 0.25
+            )
+        else:
+            # Если embedding недоступен, используем простое среднее
+            scores = [self.keyword_result.score, self.tfidf_result.score]
+            return sum(scores) / len(scores)
     
     @property
     def max_score(self) -> float:

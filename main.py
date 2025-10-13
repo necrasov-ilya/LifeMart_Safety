@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -21,9 +22,6 @@ if not settings.BOT_TOKEN or not settings.MODERATOR_CHAT_ID:
     sys.exit(2)
 
 from bot.app import run_polling
-
-if __name__ == "__main__":
-    run_polling()
 
 if __name__ == "__main__":
     try:
