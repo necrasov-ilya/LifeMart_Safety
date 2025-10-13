@@ -146,7 +146,9 @@ Thumbs.db
 
 # Project specific
 logs/
+data/
 .github/
+
 *.log
 
 
