@@ -12,6 +12,8 @@ __pycache__/
 dist/
 build/
 
+.github/
+
 logs/*.log
 data/*.csv
 models/*.pkl
