@@ -1,18 +1,10 @@
-# bot/handlers.py
 from __future__ import annotations
 
-import time
-import csv
 import html
+import time
 from pathlib import Path
-from typing import Dict, Tuple
 
-from telegram import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-    Update,
-)
+from telegram import Message, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -24,24 +16,48 @@ from telegram.ext import (
 )
 
 from config.config import settings
-from ml.model import SpamClassifier
+from core.coordinator import FilterCoordinator
+from core.types import Action, AnalysisResult
+from filters.keyword import KeywordFilter
+from filters.tfidf import TfidfFilter
+from filters.embedding import EmbeddingFilter
+from services.policy import PolicyEngine
+from services.dataset import DatasetManager
+from bot.keyboards import moderator_keyboard, format_moderator_card
 from utils.logger import get_logger
 
-# ─────────────────────────────  GLOBALS
 LOGGER = get_logger(__name__)
 
-classifier = SpamClassifier(retrain_threshold=settings.RETRAIN_THRESHOLD)
+keyword_filter = KeywordFilter()
+tfidf_filter = TfidfFilter()
+embedding_filter = EmbeddingFilter(
+    mode=settings.EMBEDDING_MODE,
+    api_key=settings.MISTRAL_API_KEY
+)
 
-# (chat_id, msg_id)  ->  (text, author_full_name)
-PENDING: Dict[Tuple[int, int], Tuple[str, str]] = {}
+coordinator = FilterCoordinator(
+    keyword_filter=keyword_filter,
+    tfidf_filter=tfidf_filter,
+    embedding_filter=embedding_filter
+)
 
-SPAM_POLICY: str = settings.SPAM_POLICY          # notify | delete | kick
-ANNOUNCE_BLOCKS: bool = settings.ANNOUNCE_BLOCKS
+policy_engine = PolicyEngine(
+    mode=settings.POLICY_MODE,
+    auto_delete_threshold=settings.AUTO_DELETE_THRESHOLD,
+    auto_kick_threshold=settings.AUTO_KICK_THRESHOLD,
+    notify_threshold=settings.NOTIFY_THRESHOLD
+)
+
+dataset_manager = DatasetManager(
+    Path(__file__).resolve().parents[1] / "data" / "messages.csv"
+)
+
+PENDING: dict[tuple[int, int], tuple[str, str, int, AnalysisResult]] = {}
 
 
-# ─────────────────────────────  HELPERS
 def is_whitelisted(uid: int) -> bool:
     return uid in settings.WHITELIST_USER_IDS
+
 
 def is_explicit_command(update: Update) -> bool:
     msg = update.effective_message
@@ -60,34 +76,21 @@ def is_explicit_command(update: Update) -> bool:
     return False
 
 
-def kb_mod(chat_id: int, msg_id: int) -> InlineKeyboardMarkup:
-    payload = f"{chat_id}:{msg_id}"
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("🚫 Спам", callback_data=f"spam:{payload}"),
-                InlineKeyboardButton("✅ Не спам", callback_data=f"ham:{payload}"),
-            ]
-        ]
-    )
-
-def _msg_link(msg: Message) -> str:
-
-    if msg.chat.username:                                   # публичная группа
+def get_message_link(msg: Message) -> str:
+    if msg.chat.username:
         return f"https://t.me/{msg.chat.username}/{msg.message_id}"
     return f"https://t.me/c/{abs(msg.chat_id)}/{msg.message_id}"
 
 
-
-async def _announce_block(
+async def announce_block(
     context: ContextTypes.DEFAULT_TYPE,
     chat_id: int,
     offender_name: str,
     by_moderator: bool,
 ) -> None:
-    """Публикует уведомление в исходном чате (если разрешено)."""
-    if not ANNOUNCE_BLOCKS:
+    if not settings.ANNOUNCE_BLOCKS:
         return
+    
     reason = "по решению модератора" if by_moderator else "автоматически"
     await context.bot.send_message(
         chat_id,
@@ -96,75 +99,73 @@ async def _announce_block(
     )
 
 
-def _dataset_rows() -> int:
-    try:
-        with open(classifier.dataset_path, newline="", encoding="utf-8") as f:
-            return sum(1 for _ in csv.reader(f)) - 1
-    except FileNotFoundError:
-        return 0
-
-
-# ─────────────────────────────  MESSAGE HANDLER
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     msg: Message = update.effective_message
-    if not msg.from_user:
+    if not msg or not msg.from_user:
         return
 
     text = (msg.text or msg.caption or "").strip()
-    if (
-        not text
-        or msg.chat_id == settings.MODERATOR_CHAT_ID
-        or is_whitelisted(msg.from_user.id)
-    ):
+    if not text or msg.chat_id == settings.MODERATOR_CHAT_ID:
         return
-
-    # rule-based эвристика + ML-классификация
-    hot_words = ("заработ", "удалёнк", "казино", "$", "работ", "spam")
-    pred = 1 if any(w in text.lower() for w in hot_words) else classifier.predict(text)
-    if pred != 1:
+    
+    if is_whitelisted(msg.from_user.id):
         return
-
-    LOGGER.info("✋ SUSPECT %s…", text[:60])
-
-    # ─ карточка модератору
-    link = _msg_link(msg)
-    preview = html.escape(text[:150] + ("…" if len(text) > 150 else ""))
-    card = (
-        "<b>Подозрительное сообщение</b>\n"
-        f"👤 <i>{html.escape(msg.from_user.full_name)}</i>\n"
-        f"🔗 <a href='{link}'>Перейти</a>\n\n{preview}"
+    
+    analysis = await coordinator.analyze(text)
+    action = policy_engine.decide_action(analysis)
+    
+    LOGGER.info(
+        f"Message from {msg.from_user.full_name}: "
+        f"avg={analysis.average_score:.2f}, action={action.value}"
     )
+    
+    if action == Action.APPROVE:
+        return
+    
+    msg_link = get_message_link(msg)
+    
+    card = format_moderator_card(
+        user_name=msg.from_user.full_name,
+        text=text,
+        msg_link=msg_link,
+        analysis=analysis
+    )
+    
     await context.bot.send_message(
         settings.MODERATOR_CHAT_ID,
         card,
-        reply_markup=kb_mod(msg.chat_id, msg.message_id),
+        reply_markup=moderator_keyboard(msg.chat_id, msg.message_id),
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
-
-    PENDING[(msg.chat_id, msg.message_id)] = (text, msg.from_user.full_name, msg.from_user.id)
-
-    # ─ автоматические действия согласно политике
-    auto_deleted = False
-    if SPAM_POLICY in {"delete", "kick"}:
+    
+    PENDING[(msg.chat_id, msg.message_id)] = (
+        text,
+        msg.from_user.full_name,
+        msg.from_user.id,
+        analysis
+    )
+    
+    if action in (Action.DELETE, Action.KICK):
         try:
             await msg.delete()
-            auto_deleted = True
-        except Exception:
-            LOGGER.warning("Cannot delete %s", msg.message_id)
+            if action == Action.KICK:
+                await context.bot.ban_chat_member(msg.chat_id, msg.from_user.id, until_date=60)
+                await context.bot.unban_chat_member(msg.chat_id, msg.from_user.id)
+        except Exception as e:
+            LOGGER.warning(f"Failed to delete/kick: {e}")
+        
+        await announce_block(context, msg.chat_id, msg.from_user.full_name, by_moderator=False)
+        
+        if settings.ANNOUNCE_BLOCKS:
+            await context.bot.send_message(
+                msg.from_user.id,
+                "❌ Ваше сообщение было отправлено на модерацию.\n"
+                "Если это ошибка, модератор скоро всё исправит.",
+                parse_mode=ParseMode.HTML,
+            )
 
-    if SPAM_POLICY == "kick":
-        try:
-            await context.bot.ban_chat_member(msg.chat_id, msg.from_user.id, until_date=60)
-            await context.bot.unban_chat_member(msg.chat_id, msg.from_user.id)
-        except Exception:
-            LOGGER.warning("Cannot kick %s", msg.from_user.id)
 
-    if auto_deleted:
-        await _announce_block(context, msg.chat_id, msg.from_user.full_name, by_moderator=False)
-
-
-# ─────────────────────────────  CALLBACK BUTTONS
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if not q:
@@ -176,11 +177,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     stored = PENDING.pop((chat_id, msg_id), None)
     if stored:
-        text, offender, offender_id = stored
+        text, offender, offender_id, analysis = stored
     else:
-        text, offender, offender_id = None, "Пользователь", None
+        text, offender, offender_id, analysis = None, "Пользователь", None, None
 
-    if action == "spam":
+    if action == "kick":
         try:
             await context.bot.delete_message(chat_id, msg_id)
         except Exception:
@@ -195,81 +196,87 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except Exception as e:
             info = f"Ошибка при бане пользователя: {e}"
 
-        await _announce_block(context, chat_id, offender, by_moderator=True)
+        await announce_block(context, chat_id, offender, by_moderator=True)
 
-        added = text and classifier.update_dataset(text, 1)
-        if added:
-            info += " Сообщение сохранено как пример СПАМА 🙂"
+        if text:
+            dataset_manager.add_sample(text, 1)
+            info += " Сохранено как СПАМ."
+
+    elif action == "delete":
+        try:
+            await context.bot.delete_message(chat_id, msg_id)
+            info = "❌ Сообщение удалено."
+        except Exception as e:
+            info = f"Ошибка при удалении: {e}"
+        
+        await announce_block(context, chat_id, offender, by_moderator=True)
+        
+        if text:
+            dataset_manager.add_sample(text, 1)
+            info += " Сохранено как СПАМ."
 
     elif action == "ham":
-        added = text and classifier.update_dataset(text, 0)
-        info = "Сообщение помечено как НЕ спам."
-        if added:
-            info += " Пример сохранён в датасет 🙂"
+        if text:
+            dataset_manager.add_sample(text, 0)
+            info = "✅ Помечено как НЕ спам. Пример сохранён."
+        else:
+            info = "✅ Помечено как НЕ спам."
 
     else:
         info = "Неизвестное действие."
 
     await q.edit_message_reply_markup(reply_markup=None)
     await q.edit_message_text(f"<i>{html.escape(info)}</i>", parse_mode=ParseMode.HTML)
-# ─────────────────────────────  ADMIN COMMANDS
+    
+    if tfidf_filter.should_retrain(settings.RETRAIN_THRESHOLD):
+        LOGGER.info("Retrain threshold reached, training TF-IDF model...")
+        tfidf_filter.train()
+
+
 async def cmd_status(update: Update, _):
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
-    ds = Path(classifier.dataset_path)
-    size_kb = ds.stat().st_size // 1024 if ds.exists() else 0
+    
+    dataset_size_kb = dataset_manager.get_size_kb()
+    dataset_rows = dataset_manager.get_row_count()
+    
+    filters_status = []
+    if keyword_filter.is_ready():
+        filters_status.append("🔤 Keyword: ✅")
+    else:
+        filters_status.append("🔤 Keyword: ❌")
+    
+    if tfidf_filter.is_ready():
+        filters_status.append("📈 TF-IDF: ✅")
+    else:
+        filters_status.append("📈 TF-IDF: ❌")
+    
+    if embedding_filter.is_ready():
+        filters_status.append(f"🧠 Embedding: ✅ ({settings.EMBEDDING_MODE})")
+    else:
+        filters_status.append(f"🧠 Embedding: ❌ ({settings.EMBEDDING_MODE})")
+    
     await update.effective_message.reply_html(
         "<b>📊 Статус антиспам-системы</b>\n\n"
-
-        f"<b>📁 Датасет:</b> <code>{ds.name}</code> — название используемого набора данных\n"
-        f"<b>📦 Размер:</b> <code>{size_kb} КиБ</code> — объём загруженного датасета\n"
-        f"<b>🔢 Кол-во записей:</b> <code>{_dataset_rows()} строк</code> — количество примеров (сообщений) для анализа\n\n"
-
-        f"<b>🛡️ Политика блокировки:</b> <code>{SPAM_POLICY}</code> — активный метод определения спама\n"
-        f"<b>📣 Объявления о блоках:</b> <code>{'ВКЛ' if ANNOUNCE_BLOCKS else 'ВЫКЛ'}</code> — уведомлять ли чат о блокировках"
+        f"<b>📁 Датасет:</b> <code>messages.csv</code>\n"
+        f"<b>📦 Размер:</b> <code>{dataset_size_kb} КиБ</code>\n"
+        f"<b>🔢 Записей:</b> <code>{dataset_rows}</code>\n\n"
+        "<b>🛡️ Фильтры:</b>\n" + "\n".join(filters_status) + "\n\n"
+        f"<b>🤖 Режим политики:</b> <code>{settings.POLICY_MODE}</code>\n"
+        f"<b>📣 Объявления:</b> <code>{'ВКЛ' if settings.ANNOUNCE_BLOCKS else 'ВЫКЛ'}</code>"
     )
+
 
 async def cmd_retrain(update: Update, _):
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
-    await update.effective_message.reply_text("⏳ Переобучаю модель…")
-    classifier.train()
-    time.sleep(5)
+    await update.effective_message.reply_text("⏳ Переобучаю TF-IDF модель…")
+    tfidf_filter.train()
+    time.sleep(3)
     await update.effective_message.reply_text("✅ Модель переобучена.")
 
 
-async def cmd_policy(update: Update, _):
-    if not update.effective_user or not is_whitelisted(update.effective_user.id):
-        return
-    args = update.message.text.split(maxsplit=1)
-    global SPAM_POLICY
-    if len(args) == 2 and args[1].lower() in {"notify", "delete", "kick"}:
-        SPAM_POLICY = args[1].lower()
-        await update.message.reply_text(f"✅ SPAM_POLICY = {SPAM_POLICY}")
-    else:
-        await update.message.reply_text(
-            f"Текущий режим: {SPAM_POLICY}\nИспользование: /policy notify|delete|kick"
-        )
-
-
-async def cmd_announce(update: Update, _):
-    if not update.effective_user or not is_whitelisted(update.effective_user.id):
-        return
-    args = update.message.text.split(maxsplit=1)
-    global ANNOUNCE_BLOCKS
-    if len(args) == 2 and args[1].lower() in {"on", "off"}:
-        ANNOUNCE_BLOCKS = args[1].lower() == "on"
-        state = "ВКЛ" if ANNOUNCE_BLOCKS else "ВЫКЛ"
-        await update.message.reply_text(f"✅ Уведомления: {state}")
-    else:
-        state = "ВКЛ" if ANNOUNCE_BLOCKS else "ВЫКЛ"
-        await update.message.reply_text(
-            f"Уведомления сейчас: {state}\nИспользование: /announce on|off"
-        )
-
-
 async def cmd_start(update: Update, _):
-
     if not is_explicit_command(update):
         return
 
@@ -280,15 +287,16 @@ async def cmd_start(update: Update, _):
     if is_whitelisted(user.id):
         text = (
             "✅ Анти-спам бот запущен.\n"
-            "Вы модератор: сообщения будут автоматически направляться вам для проверки."
+            "Вы модератор: подозрительные сообщения будут направляться вам для проверки."
         )
     else:
         text = (
-            "👋 Привет! Я слежу за чистотой в чате и скрываю подозрительные сообщения.\n"
-            "Если вы случайно потеряли сообщение — его могли отправить на модерацию."
+            "👋 Привет! Я слежу за чистотой в чате и фильтрую подозрительные сообщения.\n"
+            "Если ваше сообщение пропало — возможно, оно отправлено на модерацию."
         )
 
     await update.effective_message.reply_text(text)
+
 
 async def cmd_help(update: Update, _):
     if not is_explicit_command(update):
@@ -301,32 +309,29 @@ async def cmd_help(update: Update, _):
     if is_whitelisted(user.id):
         await update.effective_message.reply_html(
             "📖 <b>Помощь по антиспам-боту</b>\n\n"
-            "<b>🛡️ SPAM_POLICY</b> — как бот реагирует на подозрительные сообщения:\n"
-            " • <code>notify</code> — сообщение остаётся, модератор получает уведомление\n"
-            " • <code>delete</code> — сообщение удаляется автоматически\n"
-            " • <code>kick</code> — сообщение удаляется, автор временно исключается\n\n"
+            "<b>🛡️ Режимы политики:</b>\n"
+            " • <code>manual</code> — всё на модератора\n"
+            " • <code>semi-auto</code> — авто при высоких оценках\n"
+            " • <code>auto</code> — полная автоматизация\n\n"
             "<b>⚙️ Команды:</b>\n"
-            " • <b>/status</b> — показать параметры антиспама\n"
-            " • <b>/retrain</b> — переобучить модель\n"
-            " • <b>/policy [тип]</b> — изменить режим (например: <code>/policy delete</code>)\n"
-            " • <b>/announce [on/off]</b> — включить/выключить уведомления о блокировках"
+            " • <b>/status</b> — статус системы\n"
+            " • <b>/retrain</b> — переобучить TF-IDF модель\n"
+            " • <b>/help</b> — эта справка"
         )
     else:
         await update.effective_message.reply_html(
             "👋 <b>Привет!</b>\n"
-            "Я — бот-модератор беседы одного из филиалов <b>Жизнь Март</b>.\n"
-            "Помогаю сохранять порядок, фильтрую спам и работаю с модераторами.\n\n"
-            "Если ваше сообщение исчезло — возможно, оно было отправлено на проверку."
+            "Я — бот-модератор <b>LifeMart</b>.\n"
+            "Помогаю сохранять порядок и фильтрую спам.\n\n"
+            "Если ваше сообщение исчезло — возможно, оно отправлено на проверку модератору."
         )
 
-# ─────────────────────────────  REGISTRATION
-def register_handlers(app: Application) -> None:
-    app.add_handler(CommandHandler("start",    cmd_start))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("status",   cmd_status))
-    app.add_handler(CommandHandler("retrain",  cmd_retrain))
-    app.add_handler(CommandHandler("policy",   cmd_policy))
-    app.add_handler(CommandHandler("announce", cmd_announce))
 
-    app.add_handler(CallbackQueryHandler(on_callback, pattern="^(spam|ham):"))
+def register_handlers(app: Application) -> None:
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("retrain", cmd_retrain))
+
+    app.add_handler(CallbackQueryHandler(on_callback, pattern="^(kick|delete|ham):"))
     app.add_handler(MessageHandler(filters.TEXT | filters.CaptionRegex(".*"), on_message))
