@@ -27,18 +27,30 @@ class AnalysisResult:
     
     @property
     def average_score(self) -> float:
-        """Взвешенная оценка с приоритетом на embedding модель"""
-        if self.embedding_result and self.embedding_result.score != 0.5:
-            # Embedding модель имеет вес 50%, остальные по 25%
+        """Взвешенная оценка с ПРИОРИТЕТОМ на embedding модель"""
+        # Проверяем доступность embedding и его уверенность
+        use_embedding = (
+            self.embedding_result 
+            and self.embedding_result.score != 0.5  # не дефолтное значение
+            and self.embedding_result.confidence > 0.0  # не ошибка
+        )
+        
+        if use_embedding:
+            # EMBEDDING - ГЛАВНЫЙ ФИЛЬТР (50%)
+            # Сравнивает с реальными примерами спама, понимает контекст
+            # TF-IDF - вспомогательный (30%) - статистика из датасета
+            # Keyword - точечный (20%) - явные паттерны
             return (
-                self.embedding_result.score * 0.5 +
-                self.keyword_result.score * 0.25 +
-                self.tfidf_result.score * 0.25
+                self.embedding_result.score * 0.50 +
+                self.tfidf_result.score * 0.30 +
+                self.keyword_result.score * 0.20
             )
         else:
-            # Если embedding недоступен, используем простое среднее
-            scores = [self.keyword_result.score, self.tfidf_result.score]
-            return sum(scores) / len(scores)
+            # Без embedding: TF-IDF 60%, Keyword 40%
+            return (
+                self.tfidf_result.score * 0.60 +
+                self.keyword_result.score * 0.40
+            )
     
     @property
     def max_score(self) -> float:

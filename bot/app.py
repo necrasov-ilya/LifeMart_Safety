@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import signal
 from typing import List
 
 from telegram import BotCommand
@@ -19,6 +17,7 @@ BOT_COMMANDS: List[BotCommand] = [
     BotCommand("help", "Краткая справка"),
     BotCommand("status", "Статус модели (whitelist)"),
     BotCommand("retrain", "Ручное переобучение (whitelist)"),
+    BotCommand("debug", "Детали сообщения по ID (whitelist)"),
 ]
 
 

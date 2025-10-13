@@ -32,6 +32,8 @@ class Settings:
     
     MISTRAL_API_KEY: str | None
     EMBEDDING_MODE: str
+    OLLAMA_MODEL: str | None
+    OLLAMA_BASE_URL: str | None
     
     POLICY_MODE: str
     AUTO_DELETE_THRESHOLD: float
@@ -77,8 +79,11 @@ def _build_settings() -> Settings:
     
     mistral_api_key = os.environ.get("MISTRAL_API_KEY")
     embedding_mode = os.environ.get("EMBEDDING_MODE", "api").lower()
-    if embedding_mode not in {"api", "local", "disabled"}:
-        raise ValueError("EMBEDDING_MODE должен быть api | local | disabled")
+    if embedding_mode not in {"api", "ollama", "local", "disabled"}:
+        raise ValueError("EMBEDDING_MODE должен быть api | ollama | local | disabled")
+    
+    ollama_model = os.environ.get("OLLAMA_MODEL")
+    ollama_base_url = os.environ.get("OLLAMA_BASE_URL")
     
     policy_mode = os.environ.get("POLICY_MODE", "semi-auto").lower()
     if policy_mode not in {"manual", "semi-auto", "auto"}:
@@ -102,6 +107,8 @@ def _build_settings() -> Settings:
         WHITELIST_USER_IDS=whitelist,
         MISTRAL_API_KEY=mistral_api_key,
         EMBEDDING_MODE=embedding_mode,
+        OLLAMA_MODEL=ollama_model,
+        OLLAMA_BASE_URL=ollama_base_url,
         POLICY_MODE=policy_mode,
         AUTO_DELETE_THRESHOLD=auto_delete_threshold,
         AUTO_KICK_THRESHOLD=auto_kick_threshold,
