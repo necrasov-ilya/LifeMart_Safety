@@ -53,10 +53,9 @@ meta_classifier = MetaClassifier()
 from config.runtime import runtime_config
 LOGGER.info(f"Policy configuration loaded:")
 LOGGER.info(f"  MODE: {runtime_config.policy_mode}")
-LOGGER.info(f"  AUTO_DELETE_THRESHOLD: {runtime_config.auto_delete_threshold}")
-LOGGER.info(f"  AUTO_KICK_THRESHOLD: {runtime_config.auto_kick_threshold}")
-LOGGER.info(f"  NOTIFY_THRESHOLD: {runtime_config.notify_threshold}")
-LOGGER.info(f"  USE_META_CLASSIFIER: {runtime_config.use_meta_classifier}")
+LOGGER.info(f"  META_NOTIFY: {runtime_config.meta_notify}")
+LOGGER.info(f"  META_DELETE: {runtime_config.meta_delete}")
+LOGGER.info(f"  META_KICK: {runtime_config.meta_kick}")
 LOGGER.info(f"  META_CLASSIFIER_READY: {meta_classifier.is_ready()}")
 
 dataset_manager = DatasetManager(
@@ -130,37 +129,40 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if is_whitelisted(msg.from_user.id):
         return
     
-    # Шаг 1: Анализ фильтрами
-    analysis = await coordinator.analyze(text)
+    # Шаг 1: Анализ фильтрами с передачей Message для извлечения метаданных
+    analysis = await coordinator.analyze(text, message=msg)
     
-    # Шаг 2: Мета-классификатор (если включен и готов)
+    # Шаг 2: Мета-классификатор
     p_spam = None
     meta_debug = None
     
-    if runtime_config.use_meta_classifier and meta_classifier.is_ready():
+    if meta_classifier.is_ready():
         try:
             p_spam, meta_debug = await meta_classifier.predict_proba(text, analysis)
             
             if p_spam is not None:
                 LOGGER.info(
                     f"MetaClassifier: p_spam={p_spam:.3f}, "
-                    f"sim_diff={meta_debug.get('sim_diff', 'N/A')}"
+                    f"sim_spam_msg={meta_debug.get('sim_spam_msg', 'N/A')}, "
+                    f"delta_msg={meta_debug.get('delta_msg', 'N/A')}"
                 )
                 
                 # Создаем новый AnalysisResult с мета-данными
                 from dataclasses import replace
                 analysis = replace(analysis, meta_proba=p_spam, meta_debug=meta_debug)
         except Exception as e:
-            LOGGER.error(f"MetaClassifier failed: {e}")
+            LOGGER.error(f"MetaClassifier failed: {e}", exc_info=True)
     
-    # Шаг 3: Принятие решения
-    action = policy_engine.decide_action(analysis)
+    # Шаг 3: Принятие решения (теперь возвращает action + decision_details)
+    action, decision_details = policy_engine.decide_action(analysis)
     
     # Логирование
     if analysis.meta_proba is not None:
         LOGGER.info(
             f"Message from {msg.from_user.full_name}: "
-            f"p_spam={analysis.meta_proba:.2f}, action={action.value}"
+            f"p_spam={decision_details['p_spam_original']:.2f}→{decision_details['p_spam_adjusted']:.2f}, "
+            f"action={action.value}, mode={decision_details['policy_mode']}, "
+            f"downweights={len(decision_details['applied_downweights'])}"
         )
     else:
         LOGGER.info(
@@ -187,7 +189,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "text": text,
         "msg_link": msg_link,
         "analysis": analysis,
-        "action": action
+        "action": action,
+        "decision_details": decision_details  # Добавляем детали решения
     }
     
     # Формируем карточку (простую или детальную в зависимости от DETAILED_DEBUG_INFO)
@@ -200,7 +203,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         analysis=analysis,
         action=action,
         chat_id=msg.chat_id,
-        message_id=msg.message_id
+        message_id=msg.message_id,
+        decision_details=decision_details  # Передаём decision_details
     )
     
     # Отправляем карточку модератору
@@ -321,14 +325,11 @@ async def cmd_status(update: Update, _):
     else:
         filters_status.append(f"🧠 Embedding: ❌ ({settings.EMBEDDING_MODE})")
     
-    # NEW: Мета-классификатор статус
-    if runtime_config.use_meta_classifier:
-        if meta_classifier.is_ready():
-            filters_status.append("🎯 MetaClassifier: ✅")
-        else:
-            filters_status.append("🎯 MetaClassifier: ❌ (not trained)")
+    # Мета-классификатор статус
+    if meta_classifier.is_ready():
+        filters_status.append("🎯 MetaClassifier: ✅")
     else:
-        filters_status.append("🎯 MetaClassifier: 🔕 (disabled)")
+        filters_status.append("🎯 MetaClassifier: ❌ (not trained)")
     
     await update.effective_message.reply_html(
         "<b>📊 Статус антиспам-системы</b>\n\n"
@@ -457,24 +458,26 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Показываем текущие значения
         overrides = runtime_config.get_overrides()
         overrides_text = "\n".join(
-            f" • <code>{k}</code> = <b>{v}</b> ⚠️ (изменено)" 
+            f" • <code>{k}</code> = <b>{v}</b> ⚠️" 
             for k, v in overrides.items()
-        ) if overrides else " <i>Нет изменённых значений</i>"
+        ) if overrides else " <i>Нет изменений</i>"
         
         await update.effective_message.reply_html(
-            "⚙️ <b>Текущие пороги:</b>\n\n"
-            "<b>Политика:</b>\n"
-            f" • <code>auto_delete</code> = {runtime_config.auto_delete_threshold}\n"
-            f" • <code>auto_kick</code> = {runtime_config.auto_kick_threshold}\n"
-            f" • <code>notify</code> = {runtime_config.notify_threshold}\n\n"
-            "<b>Фильтры:</b>\n"
-            f" • <code>keyword</code> = {runtime_config.keyword_threshold}\n"
-            f" • <code>tfidf</code> = {runtime_config.tfidf_threshold}\n"
-            f" • <code>embedding</code> = {runtime_config.embedding_threshold}\n\n"
-            "<b>Изменённые значения:</b>\n" + overrides_text + "\n\n"
-            "<b>Использование:</b> <code>/setthreshold &lt;имя&gt; &lt;значение&gt;</code>\n"
-            "Пример: <code>/setthreshold auto_delete 0.75</code>\n\n"
-            "<b>Сброс:</b> <code>/resetconfig</code>"
+            "⚙️ <b>Текущая конфигурация:</b>\n\n"
+            "<b>Режим:</b> <code>" + runtime_config.policy_mode + "</code>\n\n"
+            "<b>Пороги мета-классификатора:</b>\n"
+            f" • <code>meta_notify</code> = {runtime_config.meta_notify:.2f}\n"
+            f" • <code>meta_delete</code> = {runtime_config.meta_delete:.2f}\n"
+            f" • <code>meta_kick</code> = {runtime_config.meta_kick:.2f}\n\n"
+            "<b>Множители:</b>\n"
+            f" • <code>announcement</code> = {runtime_config.meta_downweight_announcement:.2f}\n"
+            f" • <code>reply_to_staff</code> = {runtime_config.meta_downweight_reply_to_staff:.2f}\n"
+            f" • <code>whitelist</code> = {runtime_config.meta_downweight_whitelist:.2f}\n\n"
+            "<b>Изменено:</b>\n" + overrides_text + "\n\n"
+            "<b>Команды:</b>\n"
+            " • <code>/setthreshold meta_notify 0.70</code>\n"
+            " • <code>/setdownweight announcement 0.80</code>\n"
+            " • <code>/resetconfig</code> - сброс"
         )
         return
 
@@ -489,22 +492,21 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Получаем старое значение
-    old_value = getattr(runtime_config, threshold_name, None)
-    if old_value is None:
-        available = [
-            "auto_delete", "auto_kick", "notify",
-            "keyword", "tfidf", "embedding"
-        ]
+    # Пытаемся установить порог
+    if not runtime_config.set_threshold(threshold_name, new_value):
         await update.effective_message.reply_html(
             f"❌ Неизвестный порог: <code>{html.escape(threshold_name)}</code>\n\n"
-            "<b>Доступные пороги:</b>\n" +
-            "\n".join(f" • <code>{t}</code>" for t in available)
+            "<b>Доступные пороги:</b>\n"
+            " • <code>meta_notify</code>\n"
+            " • <code>meta_delete</code>\n"
+            " • <code>meta_kick</code>"
         )
         return
 
-    try:
-        runtime_config.set_threshold(threshold_name, new_value)
+    # Сохраняем старое значение
+    old_value = getattr(runtime_config, threshold_name, None)
+    
+    if runtime_config.set_threshold(threshold_name, new_value):
         LOGGER.info(
             f"Threshold changed: {threshold_name} {old_value} → {new_value} "
             f"(by user {user.id})"
@@ -513,12 +515,58 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_html(
             "✅ <b>Порог изменён</b>\n\n"
             f" • Параметр: <code>{html.escape(threshold_name)}</code>\n"
-            f" • Было: <code>{old_value}</code>\n"
-            f" • Стало: <code>{new_value}</code>\n\n"
-            "Изменения применены немедленно."
+            f" • Было: <code>{old_value:.2f}</code>\n"
+            f" • Стало: <code>{new_value:.2f}</code>\n\n"
+            "Изменения применены."
         )
-    except ValueError as e:
-        await update.effective_message.reply_text(f"❌ Ошибка: {e}")
+    else:
+        await update.effective_message.reply_text("❌ Не удалось установить порог")
+
+
+async def cmd_setdownweight(update: Update, context):
+    """Изменить понижающий множитель"""
+    if not is_explicit_command(update):
+        return
+
+    user = update.effective_user
+    if not user or not is_whitelisted(user.id):
+        await update.effective_message.reply_text("❌ Команда доступна только модераторам")
+        return
+
+    if not context.args or len(context.args) != 2:
+        await update.effective_message.reply_html(
+            "⚙️ <b>Установка множителей</b>\n\n"
+            "<b>Использование:</b>\n"
+            "<code>/setdownweight &lt;тип&gt; &lt;значение&gt;</code>\n\n"
+            "<b>Доступные типы:</b>\n"
+            " • <code>announcement</code> - посты из каналов\n"
+            " • <code>reply_to_staff</code> - ответы модераторам\n"
+            " • <code>whitelist</code> - whitelist термины\n\n"
+            "<b>Пример:</b> <code>/setdownweight announcement 0.80</code>"
+        )
+        return
+
+    downweight_type = context.args[0].lower()
+    
+    try:
+        new_value = float(context.args[1])
+    except ValueError:
+        await update.effective_message.reply_text(
+            f"❌ Некорректное значение: {context.args[1]}\n"
+            "Ожидается число от 0.0 до 1.0"
+        )
+        return
+
+    if runtime_config.set_downweight(downweight_type, new_value):
+        LOGGER.info(f"Downweight changed: {downweight_type} → {new_value} (by user {user.id})")
+        await update.effective_message.reply_html(
+            f"✅ <b>Множитель изменён</b>\n\n"
+            f" • Тип: <code>{html.escape(downweight_type)}</code>\n"
+            f" • Новое значение: <code>{new_value:.2f}</code>\n\n"
+            "Изменения применены."
+        )
+    else:
+        await update.effective_message.reply_text("❌ Неизвестный тип множителя")
 
 
 async def cmd_resetconfig(update: Update, _):
@@ -598,6 +646,7 @@ async def cmd_help(update: Update, _):
             "<b>🔧 Команды конфигурации:</b>\n"
             " • <b>/setpolicy &lt;режим&gt;</b> — изменить режим политики\n"
             " • <b>/setthreshold &lt;имя&gt; &lt;значение&gt;</b> — изменить порог\n"
+            " • <b>/setdownweight &lt;тип&gt; &lt;значение&gt;</b> — изменить множитель\n"
             " • <b>/resetconfig</b> — сбросить к значениям из .env\n\n"
             "<b>🔄 Обслуживание:</b>\n"
             " • <b>/retrain</b> — переобучить TF-IDF модель\n"
@@ -623,15 +672,15 @@ async def cmd_meta_info(update: Update, _):
     
     message = (
         f"🎯 <b>Мета-классификатор {status_icon}</b>\n\n"
-        f"<b>Статус:</b> {'Готов' if info['ready'] else 'Не обучен'}\n"
-        f"<b>Режим:</b> {'Включен' if runtime_config.use_meta_classifier else 'Отключен'}\n\n"
+        f"<b>Статус:</b> {'Готов' if info['ready'] else 'Не обучен'}\n\n"
     )
     
     if info['ready']:
         message += (
             f"<b>📊 Пороги решений:</b>\n"
-            f" • High (delete/ban): <code>{runtime_config.meta_threshold_high:.2f}</code>\n"
-            f" • Medium (notify): <code>{runtime_config.meta_threshold_medium:.2f}</code>\n\n"
+            f" • Notify: <code>{runtime_config.meta_notify:.2f}</code>\n"
+            f" • Delete: <code>{runtime_config.meta_delete:.2f}</code>\n"
+            f" • Kick: <code>{runtime_config.meta_kick:.2f}</code>\n\n"
             f"<b>🔧 Модель:</b>\n"
             f" • Фичей: <code>{info['num_features']}</code>\n"
             f" • Калибратор: {'✅' if info['calibrator_loaded'] else '❌'}\n"
@@ -662,9 +711,10 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("retrain", cmd_retrain))
     app.add_handler(CommandHandler("debug", cmd_debug))
-    app.add_handler(CommandHandler("meta_info", cmd_meta_info))  # NEW
+    app.add_handler(CommandHandler("meta_info", cmd_meta_info))
     app.add_handler(CommandHandler("setpolicy", cmd_setpolicy))
     app.add_handler(CommandHandler("setthreshold", cmd_setthreshold))
+    app.add_handler(CommandHandler("setdownweight", cmd_setdownweight))
     app.add_handler(CommandHandler("resetconfig", cmd_resetconfig))
 
     app.add_handler(CallbackQueryHandler(on_callback, pattern="^(kick|delete|ham):"))

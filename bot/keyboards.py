@@ -25,11 +25,19 @@ def format_simple_card(
     text: str,
     msg_link: str,
     analysis: AnalysisResult,
-    action: Action
+    action: Action,
+    decision_details: dict = None
 ) -> str:
     """Упрощенная карточка для модератора (по умолчанию)"""
     preview = html.escape(text[:150] + ("…" if len(text) > 150 else ""))
-    avg_score = analysis.average_score
+    
+    # Используем p_spam если доступен, иначе average_score
+    if decision_details and 'p_spam_adjusted' in decision_details:
+        score = decision_details['p_spam_adjusted']
+        score_label = "p_spam"
+    else:
+        score = analysis.average_score
+        score_label = "оценка"
     
     # Иконка и статус в зависимости от действия
     if action == Action.KICK:
@@ -45,11 +53,15 @@ def format_simple_card(
     card = (
         f"{icon} <b>Подозрительное сообщение (№{spam_id})</b>\n\n"
         f"👤 {html.escape(user_name)}\n"
-        f"📊 Оценка: <b>{avg_score:.0%}</b>\n"
+        f"📊 {score_label}: <b>{score:.0%}</b>\n"
         f"🔗 <a href='{msg_link}'>Перейти</a>\n\n"
         f"💬 <i>{preview}</i>\n\n"
         f"🤖 <b>{status}</b>"
     )
+    
+    # Режим политики
+    if decision_details and 'policy_mode' in decision_details:
+        card += f"\n🔧 Режим: <code>{decision_details['policy_mode']}</code>"
     
     if action == Action.NOTIFY:
         card += f"\n\n<i>Используй /debug {spam_id} для деталей</i>"
@@ -68,117 +80,114 @@ def format_debug_card(
     analysis: AnalysisResult,
     action: Action,
     chat_id: int,
-    message_id: int
+    message_id: int,
+    decision_details: dict = None
 ) -> str:
-    """Детальная карточка с технической информацией"""
+    """Техническая карточка с метриками мета-классификатора"""
     preview = html.escape(text[:200] + ("…" if len(text) > 200 else ""))
     
-    keyword = analysis.keyword_result
-    tfidf = analysis.tfidf_result
-    embedding = analysis.embedding_result
-    
     # Статус действия
-    if action == Action.KICK:
-        action_text = "🚫 <b>KICK</b> (забанен автоматически)"
-    elif action == Action.DELETE:
-        action_text = "🗑️ <b>DELETE</b> (удален автоматически)"
-    elif action == Action.NOTIFY:
-        action_text = "⚠️ <b>NOTIFY</b> (ожидает решения)"
-    else:
-        action_text = "✅ <b>APPROVE</b> (пропущен)"
+    action_icons = {
+        Action.KICK: "🚫 KICK",
+        Action.DELETE: "🗑️ DELETE", 
+        Action.NOTIFY: "⚠️ NOTIFY",
+        Action.APPROVE: "✅ APPROVE"
+    }
+    action_text = action_icons.get(action, "UNKNOWN")
     
     card = (
-        f"� <b>Debug: Подозрительное сообщение №{spam_id}</b>\n\n"
-        f"👤 <b>Пользователь:</b> {html.escape(user_name)}\n"
-        f"🆔 <b>User ID:</b> <code>{user_id}</code>\n"
-        f"� <b>Chat ID:</b> <code>{chat_id}</code>\n"
-        f"📨 <b>Message ID:</b> <code>{message_id}</code>\n"
-        f"�🔗 <a href='{msg_link}'>Перейти к сообщению</a>\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>📊 АНАЛИЗ ФИЛЬТРОВ</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔍 <b>Debug #{spam_id}</b>\n"
+        f"👤 {html.escape(user_name)} (<code>{user_id}</code>)\n"
+        f"💬 Chat: <code>{chat_id}</code> | Msg: <code>{message_id}</code>\n"
+        f"🔗 <a href='{msg_link}'>Перейти</a>\n\n"
     )
     
-    # Embedding filter
-    has_embedding = (embedding and 
-                    embedding.details and 
-                    embedding.details.get("embedding") is not None)
-    
-    if has_embedding:
-        card += f"🧠 <b>Embedding Filter</b>\n"
-        card += f"   └ Score: <b>{embedding.score:.2%}</b> (confidence: {embedding.confidence:.0%})\n"
+    # Policy Decision
+    if decision_details:
+        mode = decision_details.get('policy_mode', 'unknown')
+        p_orig = decision_details.get('p_spam_original', 0)
+        p_adj = decision_details.get('p_spam_adjusted', 0)
         
-        # Статус и размер эмбеддинга
-        status = embedding.details.get("status", "ok")
-        emb_vec = embedding.details.get("embedding")
-        if emb_vec:
-            card += f"   └ Вектор: {len(emb_vec)} измерений\n"
-        if status and status != "ok":
-            card += f"   └ Статус: <code>{html.escape(status)}</code>\n"
-    else:
-        card += f"🧠 <b>Embedding Filter</b>: <i>недоступен</i>\n"
-    
-    card += "\n"
-    
-    # Keyword filter
-    card += f"🔤 <b>Keyword Filter</b> (вес: 20%)\n"
-    card += f"   └ Score: <b>{keyword.score:.2%}</b> (confidence: {keyword.confidence:.0%})\n"
-    if keyword.details:
-        if keyword.details.get("matched_keywords"):
-            keywords = ", ".join(keyword.details["matched_keywords"])
-            card += f"   └ Найдено: <code>{keywords}</code>\n"
-        if keyword.details.get("matched_patterns"):
-            patterns = ", ".join(keyword.details["matched_patterns"])
-            card += f"   └ Паттерны: <code>{patterns}</code>\n"
-    
-    card += "\n"
-    
-    # TF-IDF filter
-    card += f"� <b>TF-IDF Filter</b> (вес: 30%)\n"
-    card += f"   └ Score: <b>{tfidf.score:.2%}</b> (confidence: {tfidf.confidence:.0%})\n"
-    if tfidf.details and tfidf.details.get("class_probabilities"):
-        probs = tfidf.details["class_probabilities"]
-        card += f"   └ P(spam): {probs[1]:.3f}, P(ham): {probs[0]:.3f}\n"
-    
-    card += (
-        f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>🎯 ИТОГОВАЯ ОЦЕНКА</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    )
-    
-    # NEW: Мета-классификатор (если доступен)
-    if analysis.meta_proba is not None:
-        card += f"🎯 <b>MetaClassifier:</b> <b>{analysis.meta_proba:.2%}</b>\n"
+        card += f"━━━━ <b>РЕШЕНИЕ</b> ━━━━\n"
+        card += f"🎯 <b>{action_text}</b> | Mode: <code>{mode}</code>\n"
+        card += f"📊 p_spam: <b>{p_orig:.1%}</b>"
         
-        if analysis.meta_debug:
-            # Similarity scores
-            sim_spam = analysis.meta_debug.get('sim_spam')
-            sim_ham = analysis.meta_debug.get('sim_ham')
-            sim_diff = analysis.meta_debug.get('sim_diff')
-            
-            if sim_spam is not None:
-                card += f"   └ Sim(spam): {sim_spam:.3f}, Sim(ham): {sim_ham:.3f}, Diff: {sim_diff:.3f}\n"
-            
-            # Паттерны
-            patterns = analysis.meta_debug.get('patterns', {})
-            fired_patterns = [k.replace('has_', '') for k, v in patterns.items() 
-                            if k.startswith('has_') and v]
-            if fired_patterns:
-                card += f"   └ Паттерны: <code>{', '.join(fired_patterns)}</code>\n"
-            
-            if 'obfuscation_ratio' in patterns and patterns['obfuscation_ratio'] > 0:
-                card += f"   └ Обфускация: {patterns['obfuscation_ratio']:.1%}\n"
+        if abs(p_orig - p_adj) > 0.001:
+            card += f" → <b>{p_adj:.1%}</b>"
+        card += "\n"
+        
+        # Downweights (компактно)
+        downweights = decision_details.get('applied_downweights', [])
+        if downweights:
+            dw_str = ", ".join([f"{d['type']}(×{d['multiplier']})" for d in downweights])
+            card += f"🔽 {dw_str}\n"
+        
+        # Пороги (одной строкой)
+        thresholds = decision_details.get('thresholds_used', {})
+        if thresholds:
+            card += f"📏 N={thresholds.get('notify', 0):.2f} D={thresholds.get('delete', 0):.2f} K={thresholds.get('kick', 0):.2f}\n"
+        
+        if decision_details.get('degraded_ctx'):
+            card += f"⚠️ <i>Деградация: контекст недоступен</i>\n"
+        
+        card += "\n"
+    
+    # Meta Classifier (компактный формат)
+    if analysis.meta_proba is not None and analysis.meta_debug:
+        card += f"━━━━ <b>META-CLASSIFIER</b> ━━━━\n"
+        meta_debug = analysis.meta_debug
+        
+        # Embeddings (компактно)
+        sim_spam_msg = meta_debug.get('sim_spam_msg')
+        if sim_spam_msg is not None:
+            sim_ham_msg = meta_debug.get('sim_ham_msg')
+            delta_msg = meta_debug.get('delta_msg')
+            card += f"🧠 E_msg: s={sim_spam_msg:.3f} h={sim_ham_msg:.3f} Δ={delta_msg:.3f}\n"
+        
+        sim_spam_ctx = meta_debug.get('sim_spam_ctx')
+        if sim_spam_ctx is not None:
+            sim_ham_ctx = meta_debug.get('sim_ham_ctx')
+            delta_ctx = meta_debug.get('delta_ctx')
+            card += f"🧠 E_ctx: s={sim_spam_ctx:.3f} h={sim_ham_ctx:.3f} Δ={delta_ctx:.3f}\n"
+        
+        sim_spam_user = meta_debug.get('sim_spam_user')
+        if sim_spam_user is not None:
+            sim_ham_user = meta_debug.get('sim_ham_user')
+            delta_user = meta_debug.get('delta_user')
+            card += f"🧠 E_user: s={sim_spam_user:.3f} h={sim_ham_user:.3f} Δ={delta_user:.3f}\n"
+        
+        # Top features (top-3 компактно)
+        top_features = meta_debug.get('top_features', [])
+        if top_features:
+            card += f"\n🔝 Top-3: "
+            top3 = [f"{fname}({'+' if contrib>0 else ''}{contrib:.2f})" 
+                   for fname, contrib in top_features[:3]]
+            card += ", ".join(top3) + "\n"
+        
+        # Whitelist (одной строкой)
+        whitelist_hits = meta_debug.get('whitelist_hits', {})
+        total_hits = sum(whitelist_hits.values())
+        if total_hits > 0:
+            card += f"✅ WL: s={whitelist_hits.get('store', 0)} o={whitelist_hits.get('order', 0)} b={whitelist_hits.get('brand', 0)}\n"
+        
+        # Context flags
+        context_flags = meta_debug.get('context_flags')
+        if context_flags:
+            flags_active = [k for k, v in context_flags.items() if v]
+            if flags_active:
+                card += f"🚩 {', '.join(flags_active)}\n"
+        
+        # Patterns (компактно, max 3)
+        patterns = meta_debug.get('patterns', {})
+        fired_patterns = [k.replace('has_', '') for k, v in patterns.items() 
+                         if k.startswith('has_') and v]
+        if fired_patterns:
+            card += f"🔍 {', '.join(fired_patterns[:3])}\n"
         
         card += "\n"
     
     card += (
-        f"📊 Average Score (legacy): <b>{analysis.average_score:.2%}</b>\n"
-        f"📊 Max Score: <b>{analysis.max_score:.2%}</b>\n"
-        f"📊 All Filters High: <b>{'Да' if analysis.all_high else 'Нет'}</b>\n\n"
-        f"🤖 <b>Действие:</b> {action_text}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<b>💬 ТЕКСТ СООБЩЕНИЯ</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"━━━━ <b>ТЕКСТ</b> ━━━━\n"
         f"{preview}"
     )
     
@@ -194,7 +203,8 @@ def format_notification_card(
     analysis: AnalysisResult,
     action: Action,
     chat_id: int,
-    message_id: int
+    message_id: int,
+    decision_details: dict = None
 ) -> str:
     """
     Форматирует карточку для уведомления модератора.
@@ -211,7 +221,8 @@ def format_notification_card(
             analysis=analysis,
             action=action,
             chat_id=chat_id,
-            message_id=message_id
+            message_id=message_id,
+            decision_details=decision_details
         )
     else:
         # Показываем упрощенную версию
@@ -221,5 +232,6 @@ def format_notification_card(
             text=text,
             msg_link=msg_link,
             analysis=analysis,
-            action=action
+            action=action,
+            decision_details=decision_details
         )

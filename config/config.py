@@ -32,23 +32,34 @@ class Settings:
     
     MISTRAL_API_KEY: str | None
     EMBEDDING_MODE: str
-    EMBEDDING_MODEL_ID: str | None  # NEW: ID модели для эмбеддингов
+    EMBEDDING_MODEL_ID: str | None
     OLLAMA_MODEL: str | None
     OLLAMA_BASE_URL: str | None
     
     POLICY_MODE: str
-    AUTO_DELETE_THRESHOLD: float
-    AUTO_KICK_THRESHOLD: float
-    NOTIFY_THRESHOLD: float
     
-    KEYWORD_THRESHOLD: float
-    TFIDF_THRESHOLD: float
-    EMBEDDING_THRESHOLD: float
+    # NEW: Пороги для мета-классификатора (заменяют старые AUTO_DELETE/KICK/NOTIFY)
+    META_NOTIFY: float
+    META_DELETE: float
+    META_KICK: float
     
-    # NEW: Мета-классификатор
-    USE_META_CLASSIFIER: bool
-    META_THRESHOLD_HIGH: float
-    META_THRESHOLD_MEDIUM: float
+    # NEW: Понижающие множители
+    META_DOWNWEIGHT_ANNOUNCEMENT: float
+    META_DOWNWEIGHT_REPLY_TO_STAFF: float
+    META_DOWNWEIGHT_WHITELIST: float
+    
+    # NEW: Настройки контекста и эмбеддингов
+    EMBEDDING_TIMEOUT_MS: int
+    EMBEDDING_ENABLE_USER: bool
+    CONTEXT_HISTORY_N: int
+    CONTEXT_MAX_TOKENS: int
+    EMBEDDING_CACHE_TTL_MIN: int
+    
+    # NEW: Пути к артефактам
+    CENTROIDS_PATH: str
+    PROTOTYPES_PATH: str
+    META_MODEL_PATH: str
+    META_CALIBRATOR_PATH: str
     
     RETRAIN_THRESHOLD: int
     ANNOUNCE_BLOCKS: bool
@@ -85,33 +96,43 @@ def _build_settings() -> Settings:
     whitelist = _parse_int_list(os.environ.get("WHITELIST_USER_IDS"))
     
     mistral_api_key = os.environ.get("MISTRAL_API_KEY")
-    embedding_mode = os.environ.get("EMBEDDING_MODE", "api").lower()
+    embedding_mode = os.environ.get("EMBEDDING_MODE", "ollama").lower()
     if embedding_mode not in {"api", "ollama", "local", "disabled"}:
         raise ValueError("EMBEDDING_MODE должен быть api | ollama | local | disabled")
     
-    embedding_model_id = os.environ.get("EMBEDDING_MODEL_ID", "nomic-embed-text")  # NEW
-    ollama_model = os.environ.get("OLLAMA_MODEL", embedding_model_id)  # Fallback to EMBEDDING_MODEL_ID
-    ollama_base_url = os.environ.get("OLLAMA_BASE_URL")
+    embedding_model_id = os.environ.get("EMBEDDING_MODEL_ID", "qllama/multilingual-e5-small")
+    ollama_model = os.environ.get("OLLAMA_MODEL", embedding_model_id)
+    ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     
     policy_mode = os.environ.get("POLICY_MODE", "semi-auto").lower()
     if policy_mode not in {"manual", "semi-auto", "auto"}:
         raise ValueError("POLICY_MODE должен быть manual | semi-auto | auto")
     
-    auto_delete_threshold = float(os.environ.get("AUTO_DELETE_THRESHOLD", "0.85"))
-    auto_kick_threshold = float(os.environ.get("AUTO_KICK_THRESHOLD", "0.95"))
-    notify_threshold = float(os.environ.get("NOTIFY_THRESHOLD", "0.5"))
+    # NEW: Пороги мета-классификатора
+    meta_notify = float(os.environ.get("META_NOTIFY", "0.65"))
+    meta_delete = float(os.environ.get("META_DELETE", "0.85"))
+    meta_kick = float(os.environ.get("META_KICK", "0.95"))
     
-    keyword_threshold = float(os.environ.get("KEYWORD_THRESHOLD", "0.7"))
-    tfidf_threshold = float(os.environ.get("TFIDF_THRESHOLD", "0.6"))
-    embedding_threshold = float(os.environ.get("EMBEDDING_THRESHOLD", "0.7"))
+    # NEW: Понижающие множители
+    meta_downweight_announcement = float(os.environ.get("META_DOWNWEIGHT_ANNOUNCEMENT", "0.85"))
+    meta_downweight_reply_to_staff = float(os.environ.get("META_DOWNWEIGHT_REPLY_TO_STAFF", "0.90"))
+    meta_downweight_whitelist = float(os.environ.get("META_DOWNWEIGHT_WHITELIST", "0.85"))
     
-    # NEW: Мета-классификатор
-    use_meta_classifier = _str_to_bool(os.environ.get("USE_META_CLASSIFIER"), default=True)
-    meta_threshold_high = float(os.environ.get("META_THRESHOLD_HIGH", "0.85"))
-    meta_threshold_medium = float(os.environ.get("META_THRESHOLD_MEDIUM", "0.65"))
+    # NEW: Настройки контекста и эмбеддингов
+    embedding_timeout_ms = int(os.environ.get("EMBEDDING_TIMEOUT_MS", "800"))
+    embedding_enable_user = _str_to_bool(os.environ.get("EMBEDDING_ENABLE_USER"), default=False)
+    context_history_n = int(os.environ.get("CONTEXT_HISTORY_N", "4"))
+    context_max_tokens = int(os.environ.get("CONTEXT_MAX_TOKENS", "512"))
+    embedding_cache_ttl_min = int(os.environ.get("EMBEDDING_CACHE_TTL_MIN", "10"))
+    
+    # NEW: Пути к артефактам
+    centroids_path = os.environ.get("CENTROIDS_PATH", "models/centroids.npz")
+    prototypes_path = os.environ.get("PROTOTYPES_PATH", "models/prototypes.npz")
+    meta_model_path = os.environ.get("META_MODEL_PATH", "models/meta_model.joblib")
+    meta_calibrator_path = os.environ.get("META_CALIBRATOR_PATH", "models/meta_calibrator.joblib")
     
     retrain_thr = int(os.environ.get("RETRAIN_THRESHOLD", "100"))
-    announce_blocks = _str_to_bool(os.environ.get("ANNOUNCE_BLOCKS"), default=True)
+    announce_blocks = _str_to_bool(os.environ.get("ANNOUNCE_BLOCKS"), default=False)
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
     detailed_debug_info = _str_to_bool(os.environ.get("DETAILED_DEBUG_INFO"), default=False)
 
@@ -121,19 +142,25 @@ def _build_settings() -> Settings:
         WHITELIST_USER_IDS=whitelist,
         MISTRAL_API_KEY=mistral_api_key,
         EMBEDDING_MODE=embedding_mode,
-        EMBEDDING_MODEL_ID=embedding_model_id,  # NEW
+        EMBEDDING_MODEL_ID=embedding_model_id,
         OLLAMA_MODEL=ollama_model,
         OLLAMA_BASE_URL=ollama_base_url,
         POLICY_MODE=policy_mode,
-        AUTO_DELETE_THRESHOLD=auto_delete_threshold,
-        AUTO_KICK_THRESHOLD=auto_kick_threshold,
-        NOTIFY_THRESHOLD=notify_threshold,
-        KEYWORD_THRESHOLD=keyword_threshold,
-        TFIDF_THRESHOLD=tfidf_threshold,
-        EMBEDDING_THRESHOLD=embedding_threshold,
-        USE_META_CLASSIFIER=use_meta_classifier,  # NEW
-        META_THRESHOLD_HIGH=meta_threshold_high,  # NEW
-        META_THRESHOLD_MEDIUM=meta_threshold_medium,  # NEW
+        META_NOTIFY=meta_notify,
+        META_DELETE=meta_delete,
+        META_KICK=meta_kick,
+        META_DOWNWEIGHT_ANNOUNCEMENT=meta_downweight_announcement,
+        META_DOWNWEIGHT_REPLY_TO_STAFF=meta_downweight_reply_to_staff,
+        META_DOWNWEIGHT_WHITELIST=meta_downweight_whitelist,
+        EMBEDDING_TIMEOUT_MS=embedding_timeout_ms,
+        EMBEDDING_ENABLE_USER=embedding_enable_user,
+        CONTEXT_HISTORY_N=context_history_n,
+        CONTEXT_MAX_TOKENS=context_max_tokens,
+        EMBEDDING_CACHE_TTL_MIN=embedding_cache_ttl_min,
+        CENTROIDS_PATH=centroids_path,
+        PROTOTYPES_PATH=prototypes_path,
+        META_MODEL_PATH=meta_model_path,
+        META_CALIBRATOR_PATH=meta_calibrator_path,
         RETRAIN_THRESHOLD=retrain_thr,
         ANNOUNCE_BLOCKS=announce_blocks,
         LOG_LEVEL=log_level,

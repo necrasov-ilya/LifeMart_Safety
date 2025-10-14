@@ -1,16 +1,27 @@
 """
 services/policy.py
 ────────────────────────────────────────────────────────
-Policy Engine с поддержкой мета-классификатора.
+Policy Engine для контекстного анализа спама с тремя режимами работы.
 
-ОБНОВЛЕНО: Приоритет отдается p_spam от MetaClassifier,
-если USE_META_CLASSIFIER=true и артефакты загружены.
-Фоллбэк на взвешенную агрегацию если мета-классификатор не готов.
+РЕЖИМЫ:
+- manual: только NOTIFY при p_spam ≥ META_NOTIFY, DELETE/KICK запрещены
+- semi-auto: NOTIFY + DELETE разрешены, KICK запрещён
+- auto: все действия разрешены при соответствующих порогах
+
+ПОНИЖАЮЩИЕ МНОЖИТЕЛИ:
+Применяются ПЕРЕД сравнением с порогами:
+- is_channel_announcement → META_DOWNWEIGHT_ANNOUNCEMENT (0.85)
+- reply_to_staff → META_DOWNWEIGHT_REPLY_TO_STAFF (0.90)
+- whitelist_hits > 0 → META_DOWNWEIGHT_WHITELIST (0.85)
+
+Множители накладываются мультипликативно.
 """
 
 from __future__ import annotations
 
-from config.runtime import runtime_config
+from typing import Dict, List, Tuple
+
+from config.config import settings
 from core.types import Action, AnalysisResult
 from utils.logger import get_logger
 
@@ -19,95 +30,252 @@ LOGGER = get_logger(__name__)
 
 class PolicyEngine:
     """
-    Policy Engine использует runtime_config для динамической конфигурации.
+    Policy Engine с тремя режимами работы и понижающими множителями.
     
-    ИЗМЕНЕНО: Теперь приоритет на meta_proba от MetaClassifier.
+    ВАЖНО:
+    - Downweights применяются ПЕРЕД сравнением с порогами
+    - Graceful degradation: если degraded_ctx=True, поднимаем META_NOTIFY на +0.05
+    - Все примененные downweights записываются в applied_downweights
     """
     
-    def decide_action(self, analysis: AnalysisResult) -> Action:
-        """
-        Принять решение на основе текущей конфигурации.
+    def __init__(self):
+        self.policy_mode = settings.POLICY_MODE
         
-        Если USE_META_CLASSIFIER=true и есть meta_proba:
-            - Использует META_THRESHOLD_HIGH/MEDIUM для решения
-        Иначе:
-            - Фоллбэк на старую взвешенную агрегацию (average_score)
-        """
-        # Проверяем доступность мета-классификатора
-        if runtime_config.use_meta_classifier and analysis.meta_proba is not None:
-            LOGGER.debug(f"Using MetaClassifier: p_spam={analysis.meta_proba:.3f}")
-            return self._meta_mode(analysis.meta_proba)
-        else:
-            # Фоллбэк на старую логику
-            if not runtime_config.use_meta_classifier:
-                LOGGER.debug("USE_META_CLASSIFIER=false, using legacy mode")
-            else:
-                LOGGER.warning("MetaClassifier not ready, falling back to legacy mode")
-            
-            avg_score = analysis.average_score
-            max_score = analysis.max_score
-            all_high = analysis.all_high
-            
-            mode = runtime_config.policy_mode
-            
-            if mode == "manual":
-                return self._manual_mode(analysis)
-            elif mode == "semi-auto":
-                return self._semi_auto_mode(avg_score, max_score, all_high)
-            else:
-                return self._auto_mode(avg_score, max_score, all_high)
+        # Пороги для META
+        self.meta_notify = settings.META_NOTIFY
+        self.meta_delete = settings.META_DELETE
+        self.meta_kick = settings.META_KICK
+        
+        # Понижающие множители
+        self.downweight_announcement = settings.META_DOWNWEIGHT_ANNOUNCEMENT
+        self.downweight_reply_to_staff = settings.META_DOWNWEIGHT_REPLY_TO_STAFF
+        self.downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
+        
+        LOGGER.info(
+            f"PolicyEngine initialized: mode={self.policy_mode}, "
+            f"thresholds=(notify={self.meta_notify}, delete={self.meta_delete}, kick={self.meta_kick})"
+        )
     
-    def _meta_mode(self, p_spam: float) -> Action:
-        """Решение на основе вероятности от MetaClassifier."""
-        if p_spam >= runtime_config.meta_threshold_high:
-            # Автоматическое удаление/бан
-            if p_spam >= 0.95:
+    def decide_action(self, analysis: AnalysisResult) -> Tuple[Action, Dict]:
+        """
+        Принять решение на основе p_spam и контекстных факторов.
+        
+        Returns:
+            (action, decision_details)
+            
+        decision_details содержит:
+        - p_spam_original: исходная вероятность
+        - p_spam_adjusted: скорректированная вероятность после downweights
+        - applied_downweights: список примененных множителей
+        - thresholds_used: пороги, использованные для решения
+        - degraded_ctx: флаг деградации контекста
+        - action_reason: текстовое объяснение
+        """
+        # Проверяем наличие meta_proba
+        if analysis.meta_proba is None:
+            LOGGER.warning("meta_proba is None, returning APPROVE by default")
+            return Action.APPROVE, {
+                'error': 'meta_proba_missing',
+                'action_reason': 'Мета-классификатор не готов'
+            }
+        
+        p_spam_original = analysis.meta_proba
+        
+        # Применяем понижающие множители
+        p_spam_adjusted, applied_downweights = self._apply_downweights(analysis)
+        
+        # Graceful degradation для контекста
+        thresholds_adjusted = self._adjust_thresholds_for_degradation(analysis)
+        
+        # Выбираем действие в зависимости от режима
+        action = self._select_action(
+            p_spam_adjusted,
+            thresholds_adjusted,
+            self.policy_mode
+        )
+        
+        # Формируем объяснение
+        reason = self._explain_action(
+            action,
+            p_spam_original,
+            p_spam_adjusted,
+            applied_downweights,
+            thresholds_adjusted
+        )
+        
+        decision_details = {
+            'policy_mode': self.policy_mode,
+            'p_spam_original': float(p_spam_original),
+            'p_spam_adjusted': float(p_spam_adjusted),
+            'applied_downweights': applied_downweights,
+            'thresholds_used': thresholds_adjusted,
+            'degraded_ctx': getattr(analysis, 'degraded_ctx', False),
+            'action_reason': reason
+        }
+        
+        LOGGER.info(
+            f"Decision: {action.name} | p_spam: {p_spam_original:.3f} → {p_spam_adjusted:.3f} | "
+            f"mode={self.policy_mode} | downweights={len(applied_downweights)}"
+        )
+        
+        return action, decision_details
+    
+    def _apply_downweights(self, analysis: AnalysisResult) -> Tuple[float, List[Dict]]:
+        """
+        Применяет понижающие множители к p_spam.
+        
+        Returns:
+            (adjusted_p_spam, list_of_applied_downweights)
+        """
+        p_spam = analysis.meta_proba
+        applied = []
+        
+        metadata = analysis.metadata
+        if metadata is None:
+            return p_spam, applied
+        
+        # 1. Channel announcement (репосты из канала-донора)
+        if metadata.is_channel_announcement:
+            p_spam *= self.downweight_announcement
+            applied.append({
+                'type': 'is_channel_announcement',
+                'multiplier': self.downweight_announcement,
+                'reason': 'Сообщение из подключенного канала'
+            })
+        
+        # 2. Reply to staff (ответ админу/модератору)
+        if metadata.reply_to_staff:
+            p_spam *= self.downweight_reply_to_staff
+            applied.append({
+                'type': 'reply_to_staff',
+                'multiplier': self.downweight_reply_to_staff,
+                'reason': 'Ответ на сообщение персонала'
+            })
+        
+        # 3. Whitelist hits (упоминание терминов магазина/заказа/бренда)
+        if hasattr(analysis, 'meta_debug') and analysis.meta_debug:
+            whitelist_hits = analysis.meta_debug.get('whitelist_hits', {})
+            total_hits = (
+                whitelist_hits.get('store', 0) +
+                whitelist_hits.get('order', 0) +
+                whitelist_hits.get('brand', 0)
+            )
+            
+            if total_hits > 0:
+                p_spam *= self.downweight_whitelist
+                applied.append({
+                    'type': 'whitelist_hits',
+                    'multiplier': self.downweight_whitelist,
+                    'reason': f'Обнаружено {total_hits} совпадений whitelist-терминов',
+                    'hits': whitelist_hits
+                })
+        
+        return p_spam, applied
+    
+    def _adjust_thresholds_for_degradation(self, analysis: AnalysisResult) -> Dict:
+        """
+        Поднимает порог META_NOTIFY на +0.05 если контекст деградирован.
+        
+        Это снижает чувствительность при отсутствии E_ctx,
+        чтобы не шумить при неполной информации.
+        """
+        thresholds = {
+            'notify': self.meta_notify,
+            'delete': self.meta_delete,
+            'kick': self.meta_kick
+        }
+        
+        if getattr(analysis, 'degraded_ctx', False):
+            thresholds['notify'] += 0.05
+            LOGGER.debug("Degraded context detected, raising META_NOTIFY by +0.05")
+        
+        return thresholds
+    
+    def _select_action(
+        self,
+        p_spam: float,
+        thresholds: Dict,
+        mode: str
+    ) -> Action:
+        """
+        Выбирает действие в зависимости от режима и порогов.
+        
+        РЕЖИМЫ:
+        - manual: только NOTIFY, DELETE/KICK запрещены
+        - semi-auto: NOTIFY + DELETE разрешены, KICK запрещён
+        - auto: все действия разрешены
+        """
+        # manual: только уведомления
+        if mode == "manual":
+            if p_spam >= thresholds['notify']:
+                return Action.NOTIFY
+            return Action.APPROVE
+        
+        # semi-auto: уведомления + удаление
+        elif mode == "semi-auto":
+            if p_spam >= thresholds['delete']:
+                return Action.DELETE
+            elif p_spam >= thresholds['notify']:
+                return Action.NOTIFY
+            return Action.APPROVE
+        
+        # auto: все действия
+        elif mode == "auto":
+            if p_spam >= thresholds['kick']:
                 return Action.KICK
-            return Action.DELETE
-        elif p_spam >= runtime_config.meta_threshold_medium:
-            # Отправить модератору
-            return Action.NOTIFY
+            elif p_spam >= thresholds['delete']:
+                return Action.DELETE
+            elif p_spam >= thresholds['notify']:
+                return Action.NOTIFY
+            return Action.APPROVE
+        
         else:
-            # Пропустить
+            LOGGER.error(f"Unknown policy mode: {mode}, defaulting to manual")
+            if p_spam >= thresholds['notify']:
+                return Action.NOTIFY
             return Action.APPROVE
     
-    def _manual_mode(self, analysis: AnalysisResult) -> Action:
-        if analysis.average_score >= runtime_config.notify_threshold:
-            return Action.NOTIFY
-        return Action.APPROVE
-    
-    def _semi_auto_mode(self, avg_score: float, max_score: float, all_high: bool) -> Action:
-        if all_high and avg_score >= runtime_config.auto_kick_threshold:
-            return Action.KICK
+    def _explain_action(
+        self,
+        action: Action,
+        p_spam_original: float,
+        p_spam_adjusted: float,
+        applied_downweights: List[Dict],
+        thresholds: Dict
+    ) -> str:
+        """Генерирует текстовое объяснение решения."""
         
-        if avg_score >= runtime_config.auto_delete_threshold:
-            return Action.DELETE
-        
-        if avg_score >= runtime_config.notify_threshold:
-            return Action.NOTIFY
-        
-        return Action.APPROVE
-    
-    def _auto_mode(self, avg_score: float, max_score: float, all_high: bool) -> Action:
-        if avg_score >= runtime_config.auto_kick_threshold:
-            return Action.KICK
-        
-        if avg_score >= runtime_config.auto_delete_threshold:
-            return Action.DELETE
-        
-        if avg_score >= runtime_config.notify_threshold:
-            return Action.NOTIFY
-        
-        return Action.APPROVE
-    
-    def explain_decision(self, analysis: AnalysisResult, action: Action) -> str:
-        avg = analysis.average_score
-        
+        # Базовое объяснение по действию
         if action == Action.KICK:
-            return f"Очевидный спам (оценка: {avg:.0%}). Автоматический бан."
+            base = f"Критический спам (p={p_spam_adjusted:.2%}). Автобан."
         elif action == Action.DELETE:
-            return f"Вероятный спам (оценка: {avg:.0%}). Автоматическое удаление."
+            base = f"Явный спам (p={p_spam_adjusted:.2%}). Автоудаление."
         elif action == Action.NOTIFY:
-            return f"Подозрительное сообщение (оценка: {avg:.0%}). Требуется проверка."
+            base = f"Подозрительное сообщение (p={p_spam_adjusted:.2%}). Требуется проверка."
         else:
-            return f"Сообщение прошло проверку (оценка: {avg:.0%})."
+            base = f"Легитимное сообщение (p={p_spam_adjusted:.2%})."
+        
+        # Добавляем инфо о понижении
+        if applied_downweights:
+            downweight_info = ", ".join([
+                f"{dw['type']} (×{dw['multiplier']})"
+                for dw in applied_downweights
+            ])
+            base += f" Применены понижения: {downweight_info}."
+        
+        return base
+    
+    def get_thresholds(self) -> Dict:
+        """Возвращает текущие пороги (для отладки/UI)."""
+        return {
+            'mode': self.policy_mode,
+            'notify': self.meta_notify,
+            'delete': self.meta_delete,
+            'kick': self.meta_kick,
+            'downweights': {
+                'announcement': self.downweight_announcement,
+                'reply_to_staff': self.downweight_reply_to_staff,
+                'whitelist': self.downweight_whitelist
+            }
+        }
+

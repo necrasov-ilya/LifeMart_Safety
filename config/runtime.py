@@ -19,19 +19,16 @@ class RuntimeConfig:
     
     # Policy settings
     policy_mode: str = field(default_factory=lambda: settings.POLICY_MODE)
-    auto_delete_threshold: float = field(default_factory=lambda: settings.AUTO_DELETE_THRESHOLD)
-    auto_kick_threshold: float = field(default_factory=lambda: settings.AUTO_KICK_THRESHOLD)
-    notify_threshold: float = field(default_factory=lambda: settings.NOTIFY_THRESHOLD)
     
-    # Filter thresholds
-    keyword_threshold: float = field(default_factory=lambda: settings.KEYWORD_THRESHOLD)
-    tfidf_threshold: float = field(default_factory=lambda: settings.TFIDF_THRESHOLD)
-    embedding_threshold: float = field(default_factory=lambda: settings.EMBEDDING_THRESHOLD)
+    # Meta classifier thresholds
+    meta_notify: float = field(default_factory=lambda: settings.META_NOTIFY)
+    meta_delete: float = field(default_factory=lambda: settings.META_DELETE)
+    meta_kick: float = field(default_factory=lambda: settings.META_KICK)
     
-    # NEW: Meta classifier settings
-    use_meta_classifier: bool = field(default_factory=lambda: settings.USE_META_CLASSIFIER)
-    meta_threshold_high: float = field(default_factory=lambda: settings.META_THRESHOLD_HIGH)
-    meta_threshold_medium: float = field(default_factory=lambda: settings.META_THRESHOLD_MEDIUM)
+    # Downweight multipliers
+    meta_downweight_announcement: float = field(default_factory=lambda: settings.META_DOWNWEIGHT_ANNOUNCEMENT)
+    meta_downweight_reply_to_staff: float = field(default_factory=lambda: settings.META_DOWNWEIGHT_REPLY_TO_STAFF)
+    meta_downweight_whitelist: float = field(default_factory=lambda: settings.META_DOWNWEIGHT_WHITELIST)
     
     # Tracking overrides
     _overrides: Dict[str, any] = field(default_factory=dict, repr=False)
@@ -50,28 +47,14 @@ class RuntimeConfig:
         return True
     
     def set_threshold(self, name: str, value: float) -> bool:
-        """Изменить порог фильтра или политики"""
+        """Изменить порог мета-классификатора"""
         if value < 0.0 or value > 1.0:
             return False
         
-        valid_thresholds = {
-            "auto_delete", "auto_kick", "notify",
-            "keyword", "tfidf", "embedding",
-            "meta_high", "meta_medium"  # NEW
-        }
+        valid_thresholds = {"meta_notify", "meta_delete", "meta_kick"}
+        threshold_name = name.lower().replace("-", "_")
         
-        threshold_name = name.lower().replace("-", "_").replace(".", "_")
-        
-        # Обработка meta.high -> meta_threshold_high
-        if threshold_name == "meta_high":
-            threshold_name = "meta_threshold_high"
-        elif threshold_name == "meta_medium":
-            threshold_name = "meta_threshold_medium"
-        elif not threshold_name.endswith("_threshold"):
-            threshold_name = f"{threshold_name}_threshold"
-        
-        # Проверяем что это валидный threshold
-        if not hasattr(self, threshold_name):
+        if threshold_name not in valid_thresholds:
             return False
         
         old_value = getattr(self, threshold_name)
@@ -79,6 +62,41 @@ class RuntimeConfig:
         self._overrides[threshold_name] = value
         
         LOGGER.info(f"Threshold changed: {threshold_name} = {old_value:.2f} → {value:.2f}")
+        return True
+    
+    def set_downweight(self, name: str, value: float) -> bool:
+        """
+        Изменить понижающий множитель.
+        
+        Args:
+            name: announcement|reply_to_staff|whitelist
+            value: множитель (обычно 0.7-0.95)
+        
+        Returns:
+            True если успешно
+        """
+        if value < 0.0 or value > 1.0:
+            LOGGER.warning(f"Invalid downweight value: {value} (must be 0.0-1.0)")
+            return False
+        
+        downweight_map = {
+            "announcement": "meta_downweight_announcement",
+            "reply_to_staff": "meta_downweight_reply_to_staff",
+            "whitelist": "meta_downweight_whitelist"
+        }
+        
+        name_normalized = name.lower().replace("-", "_")
+        attr_name = downweight_map.get(name_normalized)
+        
+        if not attr_name or not hasattr(self, attr_name):
+            LOGGER.warning(f"Unknown downweight: {name}")
+            return False
+        
+        old_value = getattr(self, attr_name)
+        setattr(self, attr_name, value)
+        self._overrides[attr_name] = value
+        
+        LOGGER.info(f"Downweight changed: {attr_name} = {old_value:.2f} → {value:.2f}")
         return True
     
     def get_overrides(self) -> Dict[str, any]:
@@ -90,18 +108,12 @@ class RuntimeConfig:
         LOGGER.info("Resetting all overrides to .env defaults")
         
         self.policy_mode = settings.POLICY_MODE
-        self.auto_delete_threshold = settings.AUTO_DELETE_THRESHOLD
-        self.auto_kick_threshold = settings.AUTO_KICK_THRESHOLD
-        self.notify_threshold = settings.NOTIFY_THRESHOLD
-        
-        self.keyword_threshold = settings.KEYWORD_THRESHOLD
-        self.tfidf_threshold = settings.TFIDF_THRESHOLD
-        self.embedding_threshold = settings.EMBEDDING_THRESHOLD
-        
-        # NEW: Meta classifier
-        self.use_meta_classifier = settings.USE_META_CLASSIFIER
-        self.meta_threshold_high = settings.META_THRESHOLD_HIGH
-        self.meta_threshold_medium = settings.META_THRESHOLD_MEDIUM
+        self.meta_notify = settings.META_NOTIFY
+        self.meta_delete = settings.META_DELETE
+        self.meta_kick = settings.META_KICK
+        self.meta_downweight_announcement = settings.META_DOWNWEIGHT_ANNOUNCEMENT
+        self.meta_downweight_reply_to_staff = settings.META_DOWNWEIGHT_REPLY_TO_STAFF
+        self.meta_downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
         
         self._overrides.clear()
     
