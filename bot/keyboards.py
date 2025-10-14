@@ -4,6 +4,7 @@ import html
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from config.config import settings
 from core.types import Action, AnalysisResult
 
 
@@ -134,7 +135,35 @@ def format_debug_card(
         f"\n━━━━━━━━━━━━━━━━━━━━━━\n"
         f"<b>🎯 ИТОГОВАЯ ОЦЕНКА</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📊 Average Score: <b>{analysis.average_score:.2%}</b>\n"
+    )
+    
+    # NEW: Мета-классификатор (если доступен)
+    if analysis.meta_proba is not None:
+        card += f"🎯 <b>MetaClassifier:</b> <b>{analysis.meta_proba:.2%}</b>\n"
+        
+        if analysis.meta_debug:
+            # Similarity scores
+            sim_spam = analysis.meta_debug.get('sim_spam')
+            sim_ham = analysis.meta_debug.get('sim_ham')
+            sim_diff = analysis.meta_debug.get('sim_diff')
+            
+            if sim_spam is not None:
+                card += f"   └ Sim(spam): {sim_spam:.3f}, Sim(ham): {sim_ham:.3f}, Diff: {sim_diff:.3f}\n"
+            
+            # Паттерны
+            patterns = analysis.meta_debug.get('patterns', {})
+            fired_patterns = [k.replace('has_', '') for k, v in patterns.items() 
+                            if k.startswith('has_') and v]
+            if fired_patterns:
+                card += f"   └ Паттерны: <code>{', '.join(fired_patterns)}</code>\n"
+            
+            if 'obfuscation_ratio' in patterns and patterns['obfuscation_ratio'] > 0:
+                card += f"   └ Обфускация: {patterns['obfuscation_ratio']:.1%}\n"
+        
+        card += "\n"
+    
+    card += (
+        f"📊 Average Score (legacy): <b>{analysis.average_score:.2%}</b>\n"
         f"📊 Max Score: <b>{analysis.max_score:.2%}</b>\n"
         f"📊 All Filters High: <b>{'Да' if analysis.all_high else 'Нет'}</b>\n\n"
         f"🤖 <b>Действие:</b> {action_text}\n\n"
@@ -145,3 +174,43 @@ def format_debug_card(
     )
     
     return card
+
+
+def format_notification_card(
+    spam_id: int,
+    user_name: str,
+    user_id: int,
+    text: str,
+    msg_link: str,
+    analysis: AnalysisResult,
+    action: Action,
+    chat_id: int,
+    message_id: int
+) -> str:
+    """
+    Форматирует карточку для уведомления модератора.
+    Выбирает между простым и детальным форматом в зависимости от DETAILED_DEBUG_INFO.
+    """
+    if settings.DETAILED_DEBUG_INFO:
+        # Показываем полную техническую информацию по умолчанию
+        return format_debug_card(
+            spam_id=spam_id,
+            user_name=user_name,
+            user_id=user_id,
+            text=text,
+            msg_link=msg_link,
+            analysis=analysis,
+            action=action,
+            chat_id=chat_id,
+            message_id=message_id
+        )
+    else:
+        # Показываем упрощенную версию
+        return format_simple_card(
+            spam_id=spam_id,
+            user_name=user_name,
+            text=text,
+            msg_link=msg_link,
+            analysis=analysis,
+            action=action
+        )

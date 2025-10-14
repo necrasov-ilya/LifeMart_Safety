@@ -32,6 +32,7 @@ class Settings:
     
     MISTRAL_API_KEY: str | None
     EMBEDDING_MODE: str
+    EMBEDDING_MODEL_ID: str | None  # NEW: ID модели для эмбеддингов
     OLLAMA_MODEL: str | None
     OLLAMA_BASE_URL: str | None
     
@@ -44,10 +45,16 @@ class Settings:
     TFIDF_THRESHOLD: float
     EMBEDDING_THRESHOLD: float
     
+    # NEW: Мета-классификатор
+    USE_META_CLASSIFIER: bool
+    META_THRESHOLD_HIGH: float
+    META_THRESHOLD_MEDIUM: float
+    
     RETRAIN_THRESHOLD: int
     ANNOUNCE_BLOCKS: bool
     
     LOG_LEVEL: str = "INFO"
+    DETAILED_DEBUG_INFO: bool = False
 
 
 # ───────────────────────────────
@@ -82,7 +89,8 @@ def _build_settings() -> Settings:
     if embedding_mode not in {"api", "ollama", "local", "disabled"}:
         raise ValueError("EMBEDDING_MODE должен быть api | ollama | local | disabled")
     
-    ollama_model = os.environ.get("OLLAMA_MODEL")
+    embedding_model_id = os.environ.get("EMBEDDING_MODEL_ID", "nomic-embed-text")  # NEW
+    ollama_model = os.environ.get("OLLAMA_MODEL", embedding_model_id)  # Fallback to EMBEDDING_MODEL_ID
     ollama_base_url = os.environ.get("OLLAMA_BASE_URL")
     
     policy_mode = os.environ.get("POLICY_MODE", "semi-auto").lower()
@@ -97,9 +105,15 @@ def _build_settings() -> Settings:
     tfidf_threshold = float(os.environ.get("TFIDF_THRESHOLD", "0.6"))
     embedding_threshold = float(os.environ.get("EMBEDDING_THRESHOLD", "0.7"))
     
+    # NEW: Мета-классификатор
+    use_meta_classifier = _str_to_bool(os.environ.get("USE_META_CLASSIFIER"), default=True)
+    meta_threshold_high = float(os.environ.get("META_THRESHOLD_HIGH", "0.85"))
+    meta_threshold_medium = float(os.environ.get("META_THRESHOLD_MEDIUM", "0.65"))
+    
     retrain_thr = int(os.environ.get("RETRAIN_THRESHOLD", "100"))
     announce_blocks = _str_to_bool(os.environ.get("ANNOUNCE_BLOCKS"), default=True)
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    detailed_debug_info = _str_to_bool(os.environ.get("DETAILED_DEBUG_INFO"), default=False)
 
     return Settings(
         BOT_TOKEN=bot_token,
@@ -107,6 +121,7 @@ def _build_settings() -> Settings:
         WHITELIST_USER_IDS=whitelist,
         MISTRAL_API_KEY=mistral_api_key,
         EMBEDDING_MODE=embedding_mode,
+        EMBEDDING_MODEL_ID=embedding_model_id,  # NEW
         OLLAMA_MODEL=ollama_model,
         OLLAMA_BASE_URL=ollama_base_url,
         POLICY_MODE=policy_mode,
@@ -116,9 +131,13 @@ def _build_settings() -> Settings:
         KEYWORD_THRESHOLD=keyword_threshold,
         TFIDF_THRESHOLD=tfidf_threshold,
         EMBEDDING_THRESHOLD=embedding_threshold,
+        USE_META_CLASSIFIER=use_meta_classifier,  # NEW
+        META_THRESHOLD_HIGH=meta_threshold_high,  # NEW
+        META_THRESHOLD_MEDIUM=meta_threshold_medium,  # NEW
         RETRAIN_THRESHOLD=retrain_thr,
         ANNOUNCE_BLOCKS=announce_blocks,
         LOG_LEVEL=log_level,
+        DETAILED_DEBUG_INFO=detailed_debug_info,
     )
 
 

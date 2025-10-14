@@ -28,6 +28,11 @@ class RuntimeConfig:
     tfidf_threshold: float = field(default_factory=lambda: settings.TFIDF_THRESHOLD)
     embedding_threshold: float = field(default_factory=lambda: settings.EMBEDDING_THRESHOLD)
     
+    # NEW: Meta classifier settings
+    use_meta_classifier: bool = field(default_factory=lambda: settings.USE_META_CLASSIFIER)
+    meta_threshold_high: float = field(default_factory=lambda: settings.META_THRESHOLD_HIGH)
+    meta_threshold_medium: float = field(default_factory=lambda: settings.META_THRESHOLD_MEDIUM)
+    
     # Tracking overrides
     _overrides: Dict[str, any] = field(default_factory=dict, repr=False)
     
@@ -51,18 +56,21 @@ class RuntimeConfig:
         
         valid_thresholds = {
             "auto_delete", "auto_kick", "notify",
-            "keyword", "tfidf", "embedding"
+            "keyword", "tfidf", "embedding",
+            "meta_high", "meta_medium"  # NEW
         }
         
-        threshold_name = name.lower().replace("-", "_")
-        if not threshold_name.endswith("_threshold"):
+        threshold_name = name.lower().replace("-", "_").replace(".", "_")
+        
+        # Обработка meta.high -> meta_threshold_high
+        if threshold_name == "meta_high":
+            threshold_name = "meta_threshold_high"
+        elif threshold_name == "meta_medium":
+            threshold_name = "meta_threshold_medium"
+        elif not threshold_name.endswith("_threshold"):
             threshold_name = f"{threshold_name}_threshold"
         
         # Проверяем что это валидный threshold
-        base_name = threshold_name.replace("_threshold", "")
-        if base_name not in valid_thresholds:
-            return False
-        
         if not hasattr(self, threshold_name):
             return False
         
@@ -89,6 +97,11 @@ class RuntimeConfig:
         self.keyword_threshold = settings.KEYWORD_THRESHOLD
         self.tfidf_threshold = settings.TFIDF_THRESHOLD
         self.embedding_threshold = settings.EMBEDDING_THRESHOLD
+        
+        # NEW: Meta classifier
+        self.use_meta_classifier = settings.USE_META_CLASSIFIER
+        self.meta_threshold_high = settings.META_THRESHOLD_HIGH
+        self.meta_threshold_medium = settings.META_THRESHOLD_MEDIUM
         
         self._overrides.clear()
     

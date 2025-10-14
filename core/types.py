@@ -24,10 +24,16 @@ class AnalysisResult:
     keyword_result: FilterResult
     tfidf_result: FilterResult
     embedding_result: FilterResult | None
+    meta_proba: float | None = None  # Вероятность спама от MetaClassifier
+    meta_debug: dict | None = None   # Отладочная информация от MetaClassifier
     
     @property
     def average_score(self) -> float:
         """Взвешенная оценка с ПРИОРИТЕТОМ на embedding модель"""
+        # ВАЖНО: Если есть meta_proba - она игнорируется здесь,
+        # т.к. используется PolicyEngine напрямую.
+        # Это свойство сохранено для фоллбэка на старую логику.
+        
         # Проверяем доступность embedding и его уверенность
         use_embedding = (
             self.embedding_result 

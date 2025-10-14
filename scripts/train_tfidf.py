@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Добавляем корень проекта в sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
@@ -40,7 +39,7 @@ def main():
     
     X_train, X_test, y_train, y_test = train_test_split(
         df["message"], df["label"],
-        test_size=0.2,
+        test_size=0.3,
         random_state=42,
         stratify=df["label"] if len(df) > 20 else None
     )
