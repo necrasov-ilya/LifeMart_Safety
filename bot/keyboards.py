@@ -99,13 +99,22 @@ def format_debug_card(
         f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     
-    # Embedding filter (приоритет)
-    if embedding and embedding.score != 0.5:
-        card += f"🧠 <b>Embedding Filter</b> (вес: 50%)\n"
+    # Embedding filter
+    has_embedding = (embedding and 
+                    embedding.details and 
+                    embedding.details.get("embedding") is not None)
+    
+    if has_embedding:
+        card += f"🧠 <b>Embedding Filter</b>\n"
         card += f"   └ Score: <b>{embedding.score:.2%}</b> (confidence: {embedding.confidence:.0%})\n"
-        if embedding.details and embedding.details.get("reasoning"):
-            reasoning = html.escape(embedding.details["reasoning"])
-            card += f"   └ {reasoning}\n"
+        
+        # Статус и размер эмбеддинга
+        status = embedding.details.get("status", "ok")
+        emb_vec = embedding.details.get("embedding")
+        if emb_vec:
+            card += f"   └ Вектор: {len(emb_vec)} измерений\n"
+        if status and status != "ok":
+            card += f"   └ Статус: <code>{html.escape(status)}</code>\n"
     else:
         card += f"🧠 <b>Embedding Filter</b>: <i>недоступен</i>\n"
     
