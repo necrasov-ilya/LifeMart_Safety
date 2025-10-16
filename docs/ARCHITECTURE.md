@@ -125,7 +125,8 @@ API: `MetaClassifier.predict_proba(text, analysis) -> (p_spam, meta_debug)`.
 
 ## 6. Policy Engine — принятие решений
 
-Режимы: `manual`, `semi-auto`, `auto`.
+Режимы: `manual`, `legacy-manual`, `semi-auto`, `auto`.
+- legacy-manual: последовательность keyword -> TF-IDF, решения принимает классический пайплайн, мета-классификатор работает только "для справки".
 - manual: только NOTIFY при `p_spam ≥ META_NOTIFY`.
 - semi-auto: NOTIFY/DELETE (KICK запрещён).
 - auto: доступны все действия, пороги: `META_NOTIFY`, `META_DELETE`, `META_KICK`.

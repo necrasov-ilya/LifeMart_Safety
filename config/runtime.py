@@ -34,16 +34,18 @@ class RuntimeConfig:
     _overrides: Dict[str, any] = field(default_factory=dict, repr=False)
     
     def set_policy_mode(self, mode: str) -> bool:
-        """Изменить режим политики"""
-        mode = mode.lower()
-        if mode not in {"manual", "semi-auto", "auto"}:
+        """Update policy mode override"""
+        if not mode:
             return False
-        
+        mode_normalized = mode.strip().lower().replace("_", "-")
+        if mode_normalized not in {"manual", "semi-auto", "auto", "legacy-manual"}:
+            return False
+
         old_value = self.policy_mode
-        self.policy_mode = mode
-        self._overrides["policy_mode"] = mode
-        
-        LOGGER.info(f"Policy mode changed: {old_value} → {mode}")
+        self.policy_mode = mode_normalized
+        self._overrides["policy_mode"] = mode_normalized
+
+        LOGGER.info(f"Policy mode changed: {old_value} -> {mode_normalized}")
         return True
     
     def set_threshold(self, name: str, value: float) -> bool:

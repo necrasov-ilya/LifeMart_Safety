@@ -30,14 +30,30 @@ def format_simple_card(
 ) -> str:
     """Упрощенная карточка для модератора (по умолчанию)"""
     preview = html.escape(text[:150] + ("…" if len(text) > 150 else ""))
+    kw_score = None
+    tfidf_score = None
     
     # Используем p_spam если доступен, иначе average_score
-    if decision_details and 'p_spam_adjusted' in decision_details:
+    legacy_mode = bool(decision_details and decision_details.get('legacy_mode'))
+    if legacy_mode:
+        kw_score = float(decision_details.get('legacy_keyword_score', 0.0) or 0.0)
+        tfidf_score = float(decision_details.get('legacy_tfidf_score', 0.0) or 0.0)
+        score = decision_details.get('legacy_trigger_score')
+        if score is None:
+            score = max(kw_score, tfidf_score)
+        trigger = decision_details.get('legacy_trigger')
+        if trigger == "keyword":
+            score_label = "Legacy keyword"
+        elif trigger == "tfidf":
+            score_label = "Legacy TF-IDF"
+        else:
+            score_label = "Legacy score"
+    elif decision_details and 'p_spam_adjusted' in decision_details:
         score = decision_details['p_spam_adjusted']
         score_label = "p_spam"
     else:
         score = analysis.average_score
-        score_label = "оценка"
+        score_label = "average"
     
     # Иконка и статус в зависимости от действия
     if action == Action.KICK:
@@ -58,6 +74,17 @@ def format_simple_card(
         f"💬 <i>{preview}</i>\n\n"
         f"🤖 <b>{status}</b>"
     )
+    if legacy_mode:
+        legacy_chunks = []
+        if kw_score is not None:
+            legacy_chunks.append(f"KW=<b>{kw_score:.0%}</b>")
+        if tfidf_score is not None:
+            legacy_chunks.append(f"TF-IDF=<b>{tfidf_score:.0%}</b>")
+        if legacy_chunks:
+            card += "\nLegacy: " + ", ".join(legacy_chunks)
+        meta_preview = decision_details.get("p_spam_original") if decision_details else None
+        if meta_preview is not None:
+            card += f"\nMeta p_spam: <b>{meta_preview:.0%}</b>"
     
     # Режим политики
     if decision_details and 'policy_mode' in decision_details:
@@ -105,33 +132,50 @@ def format_debug_card(
     # Policy Decision
     if decision_details:
         mode = decision_details.get('policy_mode', 'unknown')
-        p_orig = decision_details.get('p_spam_original', 0)
-        p_adj = decision_details.get('p_spam_adjusted', 0)
-        
-        card += f"━━━━ <b>РЕШЕНИЕ</b> ━━━━\n"
-        card += f"🎯 <b>{action_text}</b> | Mode: <code>{mode}</code>\n"
-        card += f"📊 p_spam: <b>{p_orig:.1%}</b>"
-        
-        if abs(p_orig - p_adj) > 0.001:
-            card += f" → <b>{p_adj:.1%}</b>"
+        legacy_mode = bool(decision_details.get('legacy_mode'))
+        card += "Decision summary:\n"
+        card += f"- {action_text} | mode={mode}\n"
+        if legacy_mode:
+            kw_val = decision_details.get('legacy_keyword_score')
+            tfidf_val = decision_details.get('legacy_tfidf_score')
+            trigger = decision_details.get('legacy_trigger') or "none"
+            trigger_score = decision_details.get('legacy_trigger_score')
+            legacy_parts = []
+            if kw_val is not None:
+                legacy_parts.append(f"KW={kw_val:.1%}")
+            if tfidf_val is not None:
+                legacy_parts.append(f"TF-IDF={tfidf_val:.1%}")
+            if legacy_parts:
+                card += "- Legacy scores: " + ", ".join(legacy_parts) + "\n"
+            if trigger_score is not None:
+                card += f"- Trigger: {trigger} ({trigger_score:.1%})\n"
+            reason = decision_details.get('action_reason')
+            if reason:
+                card += f"- Reason: {reason}\n"
+            meta_preview = decision_details.get('p_spam_original')
+            if meta_preview is not None:
+                card += f"- Meta p_spam: {meta_preview:.1%}\n"
+        else:
+            p_orig = float(decision_details.get('p_spam_original', 0.0))
+            p_adj = float(decision_details.get('p_spam_adjusted', p_orig))
+            card += f"- p_spam: {p_orig:.1%}"
+            if abs(p_orig - p_adj) > 0.001:
+                card += f" -> {p_adj:.1%}"
+            card += "\n"
+            downweights = decision_details.get('applied_downweights', [])
+            if downweights:
+                dw_str = ", ".join(f"{d['type']}(-{d['multiplier']})" for d in downweights)
+                card += f"- Downweights: {dw_str}\n"
+            thresholds = decision_details.get('thresholds_used', {})
+            if thresholds:
+                threshold_text = "- Thresholds: "
+                threshold_text += f"N={thresholds.get('notify', 0):.2f}, "
+                threshold_text += f"D={thresholds.get('delete', 0):.2f}, "
+                threshold_text += f"K={thresholds.get('kick', 0):.2f}\n"
+                card += threshold_text
+            if decision_details.get('degraded_ctx'):
+                card += "- Degraded context: notify+0.05\n"
         card += "\n"
-        
-        # Downweights (компактно)
-        downweights = decision_details.get('applied_downweights', [])
-        if downweights:
-            dw_str = ", ".join([f"{d['type']}(×{d['multiplier']})" for d in downweights])
-            card += f"🔽 {dw_str}\n"
-        
-        # Пороги (одной строкой)
-        thresholds = decision_details.get('thresholds_used', {})
-        if thresholds:
-            card += f"📏 N={thresholds.get('notify', 0):.2f} D={thresholds.get('delete', 0):.2f} K={thresholds.get('kick', 0):.2f}\n"
-        
-        if decision_details.get('degraded_ctx'):
-            card += f"⚠️ <i>Деградация: контекст недоступен</i>\n"
-        
-        card += "\n"
-    
     # Meta Classifier (компактный формат)
     if analysis.meta_proba is not None and analysis.meta_debug:
         card += f"━━━━ <b>META-CLASSIFIER</b> ━━━━\n"

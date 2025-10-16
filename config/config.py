@@ -105,9 +105,10 @@ def _build_settings() -> Settings:
     ollama_model = os.environ.get("OLLAMA_MODEL", embedding_model_id)
     ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     
-    policy_mode = os.environ.get("POLICY_MODE", "semi-auto").lower()
-    if policy_mode not in {"manual", "semi-auto", "auto"}:
-        raise ValueError("POLICY_MODE должен быть manual | semi-auto | auto")
+    raw_policy_mode = os.environ.get("POLICY_MODE", "semi-auto")
+    policy_mode = raw_policy_mode.strip().lower().replace("_", "-")
+    if policy_mode not in {"manual", "semi-auto", "auto", "legacy-manual"}:
+        raise ValueError("POLICY_MODE должен быть manual | semi-auto | auto | legacy-manual")
     
     # NEW: Пороги мета-классификатора
     meta_notify = float(os.environ.get("META_NOTIFY", "0.65"))

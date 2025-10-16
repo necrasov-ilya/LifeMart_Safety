@@ -414,6 +414,7 @@ async def cmd_setpolicy(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<b>Использование:</b> <code>/setpolicy &lt;режим&gt;</code>\n\n"
             "<b>Доступные режимы:</b>\n"
             " • <code>manual</code> — всё на модератора\n"
+            " - <code>legacy-manual</code> - keyword -> TF-IDF (meta classifier output is informational only)\n"
             " • <code>semi-auto</code> — авто при высоких оценках\n"
             " • <code>auto</code> — полная автоматизация".format(
                 html.escape(runtime_config.policy_mode)
@@ -426,6 +427,7 @@ async def cmd_setpolicy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         runtime_config.set_policy_mode(new_mode)
+        policy_engine.policy_mode = runtime_config.policy_mode
         LOGGER.info(f"Policy mode changed: {old_mode} → {new_mode} (by user {user.id})")
         
         await update.effective_message.reply_html(
@@ -440,7 +442,7 @@ async def cmd_setpolicy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError as e:
         await update.effective_message.reply_html(
             f"❌ Ошибка: {html.escape(str(e))}\n\n"
-            "Допустимые значения: <code>manual</code>, <code>semi-auto</code>, <code>auto</code>"
+            "���������� ��������: <code>manual</code>, <code>legacy-manual</code>, <code>semi-auto</code>, <code>auto</code>"
         )
 
 
