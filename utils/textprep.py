@@ -46,12 +46,10 @@ ORDER_TERMS = {
 }
 
 BRAND_TERMS = {
-    # Известные бренды (легитимные упоминания)
-    "nike", "adidas", "apple", "samsung", "xiaomi", "huawei",
-    "zara", "h&m", "uniqlo", "ozon", "wildberries", "aliexpress",
-    "yandex", "google", "telegram", "whatsapp", "instagram",
-    "сбербанк", "тинькофф", "альфа-банк", "втб",
-    # Можно расширить по домену проекта
+    "lifemart", "life mart", "life-mart", "lifemart.ru",
+    "жизньмарт", "жизнь март", "лайфмарт", "лайф март",
+    # Ресторанный бренд «Сушкоф» (варианты написания)
+    "сушкоф", "сушкофф", "sushkof", "sushkoff", "sushkof.ru",
 }
 
 # Компиляция в нижний регистр для быстрого поиска
