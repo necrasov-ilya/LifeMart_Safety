@@ -554,9 +554,9 @@ async def main():
     # 10. Сохранение артефактов
     LOGGER.info("Step 10: Saving artifacts...")
     
-    # Модель
-    dump(logreg, models_dir / "meta_logreg.joblib")
-    LOGGER.info("Saved: meta_logreg.joblib")
+    # Модель (используем имя из config.py)
+    dump(logreg, models_dir / "meta_model.joblib")
+    LOGGER.info("Saved: meta_model.joblib")
     
     # Калибратор
     dump(calibrator, models_dir / "meta_calibrator.joblib")

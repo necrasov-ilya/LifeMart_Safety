@@ -171,6 +171,7 @@ class MetaClassifier:
         """Проверяет готовность классификатора."""
         return (
             self.logreg is not None and
+            self.calibrator is not None and
             self.spam_centroid is not None and
             self.ham_centroid is not None and
             len(self.feature_names) > 0
