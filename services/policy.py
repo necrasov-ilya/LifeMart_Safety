@@ -165,10 +165,18 @@ class PolicyEngine:
             "legacy_trigger_score": float(trigger_score) if trigger else None,
             "legacy_trigger_threshold": float(trigger_threshold) if trigger else None,
             "action_reason": reason,
+            "applied_downweights": [],
+            "thresholds_used": {
+                "notify": self.legacy_tfidf_threshold,
+                "delete": self.meta_delete,
+                "kick": self.meta_kick
+            },
         }
 
         if analysis.meta_proba is not None:
-            decision_details["p_spam_original"] = float(analysis.meta_proba)
+            meta_value = float(analysis.meta_proba)
+            decision_details["p_spam_original"] = meta_value
+            decision_details["p_spam_adjusted"] = meta_value
 
         LOGGER.info(
             "Legacy policy decision: %s | keyword=%.3f | tfidf=%.3f | trigger=%s",
