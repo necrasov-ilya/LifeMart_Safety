@@ -47,6 +47,7 @@ class Settings:
     META_DOWNWEIGHT_ANNOUNCEMENT: float
     META_DOWNWEIGHT_REPLY_TO_STAFF: float
     META_DOWNWEIGHT_WHITELIST: float
+    META_DOWNWEIGHT_BRAND: float
     
     # NEW: Настройки контекста и эмбеддингов
     EMBEDDING_TIMEOUT_MS: int
@@ -117,6 +118,7 @@ def _build_settings() -> Settings:
     meta_downweight_announcement = float(os.environ.get("META_DOWNWEIGHT_ANNOUNCEMENT", "0.85"))
     meta_downweight_reply_to_staff = float(os.environ.get("META_DOWNWEIGHT_REPLY_TO_STAFF", "0.90"))
     meta_downweight_whitelist = float(os.environ.get("META_DOWNWEIGHT_WHITELIST", "0.85"))
+    meta_downweight_brand = float(os.environ.get("META_DOWNWEIGHT_BRAND", "0.70"))
     
     # NEW: Настройки контекста и эмбеддингов
     embedding_timeout_ms = int(os.environ.get("EMBEDDING_TIMEOUT_MS", "800"))
@@ -152,6 +154,7 @@ def _build_settings() -> Settings:
         META_DOWNWEIGHT_ANNOUNCEMENT=meta_downweight_announcement,
         META_DOWNWEIGHT_REPLY_TO_STAFF=meta_downweight_reply_to_staff,
         META_DOWNWEIGHT_WHITELIST=meta_downweight_whitelist,
+        META_DOWNWEIGHT_BRAND=meta_downweight_brand,
         EMBEDDING_TIMEOUT_MS=embedding_timeout_ms,
         EMBEDDING_ENABLE_USER=embedding_enable_user,
         CONTEXT_HISTORY_N=context_history_n,

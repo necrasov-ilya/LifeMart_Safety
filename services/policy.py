@@ -13,6 +13,7 @@ Policy Engine для контекстного анализа спама с тр�
 - is_channel_announcement → META_DOWNWEIGHT_ANNOUNCEMENT (0.85)
 - reply_to_staff → META_DOWNWEIGHT_REPLY_TO_STAFF (0.90)
 - whitelist_hits > 0 → META_DOWNWEIGHT_WHITELIST (0.85)
+ - brand_hits > 0 → ДОПОЛНИТЕЛЬНО META_DOWNWEIGHT_BRAND (усиливает влияние брендов)
 
 Множители накладываются мультипликативно.
 """
@@ -50,6 +51,7 @@ class PolicyEngine:
         self.downweight_announcement = settings.META_DOWNWEIGHT_ANNOUNCEMENT
         self.downweight_reply_to_staff = settings.META_DOWNWEIGHT_REPLY_TO_STAFF
         self.downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
+        self.downweight_brand = settings.META_DOWNWEIGHT_BRAND
         
         LOGGER.info(
             f"PolicyEngine initialized: mode={self.policy_mode}, "
@@ -169,6 +171,16 @@ class PolicyEngine:
                     'reason': f'Обнаружено {total_hits} совпадений whitelist-терминов',
                     'hits': whitelist_hits
                 })
+
+            # Дополнительное усиление по брендам
+            brand_hits = whitelist_hits.get('brand', 0)
+            if brand_hits > 0:
+                p_spam *= self.downweight_brand
+                applied.append({
+                    'type': 'brand_hits',
+                    'multiplier': self.downweight_brand,
+                    'reason': f'Упоминание брендов ({brand_hits})'
+                })
         
         return p_spam, applied
     
@@ -275,7 +287,7 @@ class PolicyEngine:
             'downweights': {
                 'announcement': self.downweight_announcement,
                 'reply_to_staff': self.downweight_reply_to_staff,
-                'whitelist': self.downweight_whitelist
+                'whitelist': self.downweight_whitelist,
+                'brand': self.downweight_brand
             }
         }
-
