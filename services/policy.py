@@ -154,9 +154,30 @@ class PolicyEngine:
         else:
             reason = "legacy thresholds not exceeded"
 
+        meta_preview = None
+        meta_thresholds = {
+            "notify": self.meta_notify,
+            "delete": self.meta_delete,
+            "kick": self.meta_kick
+        }
+
+        if analysis.meta_proba is not None:
+            meta_value = float(analysis.meta_proba)
+            meta_action = self._select_action(
+                meta_value,
+                meta_thresholds,
+                "auto"
+            )
+            meta_preview = {
+                "p_spam": meta_value,
+                "recommended_action": meta_action.value,
+                "thresholds": meta_thresholds
+            }
+
         decision_details = {
             "policy_mode": self.policy_mode,
             "legacy_mode": True,
+            "legacy_action": action.value,
             "legacy_keyword_score": float(keyword_score),
             "legacy_tfidf_score": float(tfidf_score),
             "legacy_keyword_threshold": float(self.legacy_keyword_threshold),
@@ -166,17 +187,17 @@ class PolicyEngine:
             "legacy_trigger_threshold": float(trigger_threshold) if trigger else None,
             "action_reason": reason,
             "applied_downweights": [],
-            "thresholds_used": {
-                "notify": self.legacy_tfidf_threshold,
-                "delete": self.meta_delete,
-                "kick": self.meta_kick
+            "legacy_thresholds": {
+                "keyword": float(self.legacy_keyword_threshold),
+                "tfidf": float(self.legacy_tfidf_threshold)
             },
+            "thresholds_used": meta_thresholds,
         }
 
-        if analysis.meta_proba is not None:
-            meta_value = float(analysis.meta_proba)
-            decision_details["p_spam_original"] = meta_value
-            decision_details["p_spam_adjusted"] = meta_value
+        if meta_preview:
+            decision_details["meta_preview"] = meta_preview
+            decision_details["p_spam_original"] = meta_preview["p_spam"]
+            decision_details["p_spam_adjusted"] = meta_preview["p_spam"]
 
         LOGGER.info(
             "Legacy policy decision: %s | keyword=%.3f | tfidf=%.3f | trigger=%s",
