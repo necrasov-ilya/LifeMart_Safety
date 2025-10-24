@@ -205,6 +205,15 @@ python scripts/train_tfidf.py
 
 ---
 
+
+## LLM evaluation layer
+
+- Optional final decision step powered by OpenRouter. Enable it with `LLM_EVAL_ENABLED=True` and provide `OPENROUTER_API_KEY` together with `LLM_EVAL_MODEL`.
+- The service receives the results of all filters plus the serialized chat and user capsules, then returns one of the standard actions (`approve`, `notify`, `delete`, `kick`).
+- Confidence threshold is controlled by `LLM_EVAL_MIN_CONFIDENCE` (default `0.55`). Below that value the policy engine sticks to meta-classifier thresholds.
+- When the key is missing or the flag is `False` nothing changes; the pipeline behaves exactly as before.
+- Extra knobs: `LLM_EVAL_TEMPERATURE` for sampling sharpness and `LLM_EVAL_TIMEOUT_SEC` to cap network latency.
+
 ## 🧠 Требования
 
 - Python 3.10+
