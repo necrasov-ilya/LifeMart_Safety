@@ -80,6 +80,40 @@ class PolicyEngine:
         if self.policy_mode == "legacy-manual":
             return self._decide_legacy_manual(analysis)
 
+        llm_eval = getattr(analysis, 'llm_evaluation', None)
+        llm_can_override = (
+            settings.LLM_EVAL_ENABLED
+            and llm_eval is not None
+            and llm_eval.confidence >= settings.LLM_EVAL_MIN_CONFIDENCE
+        )
+        if llm_can_override and analysis.meta_proba is None:
+            decision_details = {
+                'policy_mode': self.policy_mode,
+                'p_spam_original': 0.0,
+                'p_spam_adjusted': 0.0,
+                'applied_downweights': [],
+                'thresholds_used': {},
+                'degraded_ctx': getattr(analysis, 'degraded_ctx', False),
+                'action_reason': (
+                    f"LLM override: {llm_eval.action.value} (confidence {llm_eval.confidence:.2f})"
+                ),
+                'policy_action': llm_eval.action.value,
+                'effective_action': llm_eval.action.value,
+                'llm_evaluation': {
+                    'action': llm_eval.action.value,
+                    'confidence': float(llm_eval.confidence),
+                    'reasoning': llm_eval.reasoning,
+                    'threshold': settings.LLM_EVAL_MIN_CONFIDENCE,
+                    'applied': True
+                }
+            }
+            LOGGER.info(
+                "Decision via LLM override without meta: %s (confidence=%.2f)",
+                llm_eval.action.value,
+                llm_eval.confidence,
+            )
+            return llm_eval.action, decision_details
+
         if analysis.meta_proba is None:
             LOGGER.warning("meta_proba is None, returning APPROVE by default")
             return Action.APPROVE, {
@@ -118,8 +152,35 @@ class PolicyEngine:
             'applied_downweights': applied_downweights,
             'thresholds_used': thresholds_adjusted,
             'degraded_ctx': getattr(analysis, 'degraded_ctx', False),
-            'action_reason': reason
+            'action_reason': reason,
+            'policy_action': action.value,
+            'effective_action': action.value
         }
+        llm_eval = getattr(analysis, 'llm_evaluation', None)
+        if llm_eval:
+            llm_info = {
+                'action': llm_eval.action.value,
+                'confidence': float(llm_eval.confidence),
+                'reasoning': llm_eval.reasoning,
+                'threshold': settings.LLM_EVAL_MIN_CONFIDENCE,
+                'applied': False
+            }
+            decision_details['llm_evaluation'] = llm_info
+
+            if settings.LLM_EVAL_ENABLED and llm_eval.confidence >= settings.LLM_EVAL_MIN_CONFIDENCE:
+                llm_info['applied'] = True
+                decision_details['effective_action'] = llm_eval.action.value
+                decision_details['action_reason'] = (
+                    f"LLM override: {llm_eval.action.value} (confidence {llm_eval.confidence:.2f})"
+                )
+                action = llm_eval.action
+            else:
+                LOGGER.debug(
+                    "LLM evaluation skipped: confidence %.2f < %.2f",
+                    llm_eval.confidence,
+                    settings.LLM_EVAL_MIN_CONFIDENCE
+                )
+
         
         LOGGER.info(
             f"Decision: {action.name} | p_spam: {p_spam_original:.3f} → {p_spam_adjusted:.3f} | "
@@ -132,6 +193,7 @@ class PolicyEngine:
         """Fallback logic that emulates legacy keyword + TF-IDF flow."""
         keyword_score = analysis.keyword_result.score if analysis.keyword_result else 0.0
         tfidf_score = analysis.tfidf_result.score if analysis.tfidf_result else 0.0
+
 
         action = Action.APPROVE
         trigger = None

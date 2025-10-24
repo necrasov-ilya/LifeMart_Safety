@@ -117,6 +117,27 @@ def format_simple_card(
             "",
             f"🛠️ Режим: <code>{decision_details['policy_mode']}</code>",
         ])
+    if decision_details and 'llm_evaluation' in decision_details:
+        llm_info = decision_details.get('llm_evaluation') or {}
+        applied = bool(llm_info.get('applied'))
+        confidence = float(llm_info.get('confidence', 0.0))
+        threshold = llm_info.get('threshold')
+        llm_action = _format_action_title(llm_info.get('action'))
+        header = 'LLM override' if applied else 'LLM suggestion'
+        card_lines.extend([
+            '',
+            f"{header}: <b>{llm_action}</b> ({confidence:.0%})",
+        ])
+        if threshold is not None and not applied:
+            card_lines.append(f" - min_conf={float(threshold):.2f}")
+        reasoning = llm_info.get('reasoning') or ''
+        if reasoning:
+            excerpt = html.escape(reasoning[:140])
+            if len(reasoning) > 140:
+                excerpt += '...'
+            card_lines.append(f" - {excerpt}")
+
+
 
     if action == Action.NOTIFY:
         card_lines.extend([
@@ -197,9 +218,9 @@ def format_debug_card(
             if thresholds_line:
                 card_lines.append(thresholds_line)
 
-            reason = decision_details.get('action_reason')
-            if reason:
-                card_lines.append(f" • Пояснение: {reason}")
+        reason = decision_details.get('action_reason')
+        if reason:
+            card_lines.append(f"Причина: {reason}")
 
             meta_preview = decision_details.get('meta_preview')
             if meta_preview:
@@ -219,39 +240,57 @@ def format_debug_card(
                             kick=meta_thresholds.get('kick', 0.0)
                         )
                     )
-        else:
-            p_orig = float(decision_details.get('p_spam_original', 0.0))
-            p_adj = float(decision_details.get('p_spam_adjusted', p_orig))
-            summary_line = f"📊 p_spam: <b>{p_orig:.1%}</b>"
-            if abs(p_orig - p_adj) > 0.001:
-                summary_line += f" → <b>{p_adj:.1%}</b>"
-
+        llm_info = (decision_details or {}).get('llm_evaluation')
+        if llm_info:
+            applied = bool(llm_info.get('applied'))
+            confidence = float(llm_info.get('confidence', 0.0))
+            threshold = llm_info.get('threshold')
+            llm_action = _format_action_title(llm_info.get('action'))
+            header = 'LLM override' if applied else 'LLM suggestion'
             card_lines.extend([
-                "",
-                summary_line,
+                '',
+                f"{header}: <b>{llm_action}</b> ({confidence:.0%})",
             ])
+            if threshold is not None and not applied:
+                card_lines.append(f" - min_conf={float(threshold):.2f}")
+            reasoning = llm_info.get('reasoning') or ''
+            if reasoning:
+                excerpt = html.escape(reasoning[:200])
+                if len(reasoning) > 200:
+                    excerpt += '...'
+                card_lines.append(f" - {excerpt}")
+        p_orig = float(decision_details.get('p_spam_original', 0.0))
+        p_adj = float(decision_details.get('p_spam_adjusted', p_orig))
+        summary_line = f"📊 p_spam: <b>{p_orig:.1%}</b>"
+        if abs(p_orig - p_adj) > 0.001:
+            summary_line += f" → <b>{p_adj:.1%}</b>"
 
-            downweights = decision_details.get('applied_downweights', [])
-            if downweights:
-                dw_str = ", ".join(f"{d['type']}(-{d['multiplier']})" for d in downweights)
-                card_lines.append(f"🔽 Downweights: {dw_str}")
+        card_lines.extend([
+            "",
+            summary_line,
+        ])
 
-            thresholds = decision_details.get('thresholds_used', {})
-            if thresholds:
-                card_lines.append(
-                    "📏 Thresholds: N={notify:.2f}, D={delete:.2f}, K={kick:.2f}".format(
-                        notify=thresholds.get('notify', 0.0),
-                        delete=thresholds.get('delete', 0.0),
-                        kick=thresholds.get('kick', 0.0)
-                    )
+        downweights = decision_details.get('applied_downweights', [])
+        if downweights:
+            dw_str = ", ".join(f"{d['type']}(-{d['multiplier']})" for d in downweights)
+            card_lines.append(f"🔽 Downweights: {dw_str}")
+
+        thresholds = decision_details.get('thresholds_used', {})
+        if thresholds:
+            card_lines.append(
+                "📏 Thresholds: N={notify:.2f}, D={delete:.2f}, K={kick:.2f}".format(
+                    notify=thresholds.get('notify', 0.0),
+                    delete=thresholds.get('delete', 0.0),
+                    kick=thresholds.get('kick', 0.0)
                 )
+            )
 
-            if decision_details.get('degraded_ctx'):
-                card_lines.append("⚠️ Деградация: контекст недоступен, notify +0.05")
+        if decision_details.get('degraded_ctx'):
+            card_lines.append("⚠️ Деградация: контекст недоступен, notify +0.05")
 
-            reason = decision_details.get('action_reason')
-            if reason:
-                card_lines.append(f"📝 {reason}")
+        reason = decision_details.get('action_reason')
+        if reason:
+            card_lines.append(f"Reason: {reason}")
     else:
         card_lines.append("⚠️ Нет decision_details")
 

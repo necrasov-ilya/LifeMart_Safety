@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from telegram import Message, Update
@@ -24,6 +25,7 @@ from filters.embedding import EmbeddingFilter
 from services.policy import PolicyEngine
 from services.dataset import DatasetManager
 from services.meta_classifier import MetaClassifier  # NEW
+from services.llm import LLMEvaluator
 from bot.keyboards import moderator_keyboard, format_debug_card, format_notification_card
 from utils.logger import get_logger
 
@@ -48,6 +50,7 @@ policy_engine = PolicyEngine()  # Reads config from runtime_config singleton
 
 # NEW: Мета-классификатор
 meta_classifier = MetaClassifier()
+llm_evaluator = LLMEvaluator()
 
 # Логируем загруженную конфигурацию политики
 from config.runtime import runtime_config
@@ -57,6 +60,7 @@ LOGGER.info(f"  META_NOTIFY: {runtime_config.meta_notify}")
 LOGGER.info(f"  META_DELETE: {runtime_config.meta_delete}")
 LOGGER.info(f"  META_KICK: {runtime_config.meta_kick}")
 LOGGER.info(f"  META_CLASSIFIER_READY: {meta_classifier.is_ready()}")
+LOGGER.info(f"  LLM_STAGE_ENABLED: {llm_evaluator.is_enabled()}")
 
 dataset_manager = DatasetManager(
     Path(__file__).resolve().parents[1] / "data" / "messages.csv"
@@ -148,12 +152,31 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 )
                 
                 # Создаем новый AnalysisResult с мета-данными
-                from dataclasses import replace
+
                 analysis = replace(analysis, meta_proba=p_spam, meta_debug=meta_debug)
         except Exception as e:
             LOGGER.error(f"MetaClassifier failed: {e}", exc_info=True)
     
-    # Шаг 3: Принятие решения (теперь возвращает action + decision_details)
+    # Step 3: LLM evaluation (OpenRouter)
+    if llm_evaluator.is_enabled():
+        try:
+            llm_result = await llm_evaluator.evaluate(text, analysis)
+            if llm_result:
+                llm_override = llm_evaluator.should_accept(llm_result)
+                reason_preview = (llm_result.reasoning or '').replace('\n', ' ')[:160]
+                LOGGER.info(
+                    "LLM stage: action=%s conf=%.2f override=%s",
+                    llm_result.action.value,
+                    llm_result.confidence,
+                    llm_override,
+                )
+                if reason_preview:
+                    LOGGER.debug("LLM reasoning: %s", reason_preview)
+                analysis = replace(analysis, llm_evaluation=llm_result)
+        except Exception as e:
+            LOGGER.error(f"LLM evaluation failed: {e}", exc_info=True)
+
+    # Step 4: Policy engine decision (meta-thresholds)
     action, decision_details = policy_engine.decide_action(analysis)
     
     # Логирование

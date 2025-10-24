@@ -31,10 +31,16 @@ class Settings:
     WHITELIST_USER_IDS: List[int]
     
     MISTRAL_API_KEY: str | None
+    OPENROUTER_API_KEY: str | None
     EMBEDDING_MODE: str
     EMBEDDING_MODEL_ID: str | None
     OLLAMA_MODEL: str | None
     OLLAMA_BASE_URL: str | None
+    LLM_EVAL_ENABLED: bool
+    LLM_EVAL_MODEL: str
+    LLM_EVAL_TEMPERATURE: float
+    LLM_EVAL_MIN_CONFIDENCE: float
+    LLM_EVAL_TIMEOUT_SEC: float
     
     POLICY_MODE: str
     
@@ -97,6 +103,7 @@ def _build_settings() -> Settings:
     whitelist = _parse_int_list(os.environ.get("WHITELIST_USER_IDS"))
     
     mistral_api_key = os.environ.get("MISTRAL_API_KEY")
+    openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
     embedding_mode = os.environ.get("EMBEDDING_MODE", "ollama").lower()
     if embedding_mode not in {"api", "ollama", "local", "disabled"}:
         raise ValueError("EMBEDDING_MODE должен быть api | ollama | local | disabled")
@@ -133,6 +140,15 @@ def _build_settings() -> Settings:
     prototypes_path = os.environ.get("PROTOTYPES_PATH", "models/prototypes.npz")
     meta_model_path = os.environ.get("META_MODEL_PATH", "models/meta_model.joblib")
     meta_calibrator_path = os.environ.get("META_CALIBRATOR_PATH", "models/meta_calibrator.joblib")
+
+    # NEW: LLM evaluation stage (OpenRouter)
+    llm_eval_enabled = _str_to_bool(os.environ.get("LLM_EVAL_ENABLED"), default=False)
+    llm_eval_model = os.environ.get("LLM_EVAL_MODEL", "openrouter/anthropic/claude-3.5-sonnet")
+    llm_eval_temperature = float(os.environ.get("LLM_EVAL_TEMPERATURE", "0.0"))
+    llm_eval_min_confidence = float(os.environ.get("LLM_EVAL_MIN_CONFIDENCE", "0.55"))
+    llm_eval_timeout_sec = float(os.environ.get("LLM_EVAL_TIMEOUT_SEC", "12"))
+    if not 0.0 <= llm_eval_min_confidence <= 1.0:
+        raise ValueError("LLM_EVAL_MIN_CONFIDENCE �?�?�>���? �+�<�'�? 0.0-1.0")
     
     retrain_thr = int(os.environ.get("RETRAIN_THRESHOLD", "100"))
     announce_blocks = _str_to_bool(os.environ.get("ANNOUNCE_BLOCKS"), default=False)
@@ -144,10 +160,16 @@ def _build_settings() -> Settings:
         MODERATOR_CHAT_ID=mod_chat_id,
         WHITELIST_USER_IDS=whitelist,
         MISTRAL_API_KEY=mistral_api_key,
+        OPENROUTER_API_KEY=openrouter_api_key,
         EMBEDDING_MODE=embedding_mode,
         EMBEDDING_MODEL_ID=embedding_model_id,
         OLLAMA_MODEL=ollama_model,
         OLLAMA_BASE_URL=ollama_base_url,
+        LLM_EVAL_ENABLED=llm_eval_enabled,
+        LLM_EVAL_MODEL=llm_eval_model,
+        LLM_EVAL_TEMPERATURE=llm_eval_temperature,
+        LLM_EVAL_MIN_CONFIDENCE=llm_eval_min_confidence,
+        LLM_EVAL_TIMEOUT_SEC=llm_eval_timeout_sec,
         POLICY_MODE=policy_mode,
         META_NOTIFY=meta_notify,
         META_DELETE=meta_delete,

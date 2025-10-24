@@ -45,12 +45,21 @@ class EmbeddingVectors:
 
 
 @dataclass(frozen=True, slots=True)
+class LLMEvaluation:
+    """???????? LLM-??????? ???>?? final action ?????'??????????????"""
+    action: Action
+    confidence: float
+    reasoning: str
+    raw: dict[str, any] | None = None
+
+@dataclass(frozen=True, slots=True)
 class AnalysisResult:
     keyword_result: FilterResult
     tfidf_result: FilterResult
     embedding_result: FilterResult | None
     meta_proba: float | None = None  # Вероятность спама от MetaClassifier
     meta_debug: dict | None = None   # Отладочная информация от MetaClassifier
+    llm_evaluation: LLMEvaluation | None = None
     
     # Новые поля для контекстного анализа
     metadata: MessageMetadata | None = None
