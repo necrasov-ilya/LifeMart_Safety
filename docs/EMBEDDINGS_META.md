@@ -203,7 +203,7 @@ Graceful degradation (контекст): если не удалось получ
   - Контекст: `CONTEXT_HISTORY_N`, `CONTEXT_MAX_TOKENS`
 
 - Policy & Meta:
-  - `POLICY_MODE=manual|semi-auto|auto`
+  - `POLICY_MODE=manual|legacy-manual|semi-auto|auto`
   - `META_NOTIFY`, `META_DELETE`, `META_KICK`
   - `META_DOWNWEIGHT_ANNOUNCEMENT`, `META_DOWNWEIGHT_REPLY_TO_STAFF`, `META_DOWNWEIGHT_WHITELIST`
   - Пути артефактов: `CENTROIDS_PATH`, `PROTOTYPES_PATH`, `META_MODEL_PATH`, `META_CALIBRATOR_PATH`

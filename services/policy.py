@@ -52,6 +52,9 @@ class PolicyEngine:
         self.downweight_reply_to_staff = settings.META_DOWNWEIGHT_REPLY_TO_STAFF
         self.downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
         self.downweight_brand = settings.META_DOWNWEIGHT_BRAND
+        # Legacy thresholds (keyword-first hysteresis)
+        self.legacy_keyword_threshold = 0.60
+        self.legacy_tfidf_threshold = self.meta_notify
         
         LOGGER.info(
             f"PolicyEngine initialized: mode={self.policy_mode}, "
@@ -74,6 +77,9 @@ class PolicyEngine:
         - action_reason: текстовое объяснение
         """
         # Проверяем наличие meta_proba
+        if self.policy_mode == "legacy-manual":
+            return self._decide_legacy_manual(analysis)
+
         if analysis.meta_proba is None:
             LOGGER.warning("meta_proba is None, returning APPROVE by default")
             return Action.APPROVE, {
@@ -122,6 +128,87 @@ class PolicyEngine:
         
         return action, decision_details
     
+    def _decide_legacy_manual(self, analysis: AnalysisResult) -> Tuple[Action, Dict]:
+        """Fallback logic that emulates legacy keyword + TF-IDF flow."""
+        keyword_score = analysis.keyword_result.score if analysis.keyword_result else 0.0
+        tfidf_score = analysis.tfidf_result.score if analysis.tfidf_result else 0.0
+
+        action = Action.APPROVE
+        trigger = None
+        trigger_score = 0.0
+        trigger_threshold = 0.0
+
+        if keyword_score >= self.legacy_keyword_threshold:
+            action = Action.NOTIFY
+            trigger = "keyword"
+            trigger_score = keyword_score
+            trigger_threshold = self.legacy_keyword_threshold
+        elif tfidf_score >= self.legacy_tfidf_threshold:
+            action = Action.NOTIFY
+            trigger = "tfidf"
+            trigger_score = tfidf_score
+            trigger_threshold = self.legacy_tfidf_threshold
+
+        if trigger:
+            reason = f"{trigger} score {trigger_score:.2f} >= {trigger_threshold:.2f}"
+        else:
+            reason = "legacy thresholds not exceeded"
+
+        meta_preview = None
+        meta_thresholds = {
+            "notify": self.meta_notify,
+            "delete": self.meta_delete,
+            "kick": self.meta_kick
+        }
+
+        if analysis.meta_proba is not None:
+            meta_value = float(analysis.meta_proba)
+            meta_action = self._select_action(
+                meta_value,
+                meta_thresholds,
+                "auto"
+            )
+            meta_preview = {
+                "p_spam": meta_value,
+                "recommended_action": meta_action.value,
+                "thresholds": meta_thresholds
+            }
+
+        decision_details = {
+            "policy_mode": self.policy_mode,
+            "legacy_mode": True,
+            "legacy_action": action.value,
+            "legacy_keyword_score": float(keyword_score),
+            "legacy_tfidf_score": float(tfidf_score),
+            "legacy_keyword_threshold": float(self.legacy_keyword_threshold),
+            "legacy_tfidf_threshold": float(self.legacy_tfidf_threshold),
+            "legacy_trigger": trigger,
+            "legacy_trigger_score": float(trigger_score) if trigger else None,
+            "legacy_trigger_threshold": float(trigger_threshold) if trigger else None,
+            "action_reason": reason,
+            "applied_downweights": [],
+            "legacy_thresholds": {
+                "keyword": float(self.legacy_keyword_threshold),
+                "tfidf": float(self.legacy_tfidf_threshold)
+            },
+            "thresholds_used": meta_thresholds,
+        }
+
+        if meta_preview:
+            decision_details["meta_preview"] = meta_preview
+            decision_details["p_spam_original"] = meta_preview["p_spam"]
+            decision_details["p_spam_adjusted"] = meta_preview["p_spam"]
+
+        LOGGER.info(
+            "Legacy policy decision: %s | keyword=%.3f | tfidf=%.3f | trigger=%s",
+            action.name,
+            keyword_score,
+            tfidf_score,
+            trigger or "none"
+        )
+
+        return action, decision_details
+
     def _apply_downweights(self, analysis: AnalysisResult) -> Tuple[float, List[Dict]]:
         """
         Применяет понижающие множители к p_spam.
