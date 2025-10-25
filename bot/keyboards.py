@@ -56,17 +56,10 @@ def format_simple_card(
     preview = html.escape(text[:150] + ("…" if len(text) > 150 else ""))
 
     legacy_mode = bool(decision_details and decision_details.get("legacy_mode"))
-    kw_score = None
-    tfidf_score = None
+    kw_score = float(decision_details.get("legacy_keyword_score", 0.0) or 0.0) if legacy_mode else None
+    tfidf_score = float(decision_details.get("legacy_tfidf_score", 0.0) or 0.0) if legacy_mode else None
 
-    if legacy_mode:
-        kw_score = float(decision_details.get("legacy_keyword_score", 0.0) or 0.0)
-        tfidf_score = float(decision_details.get("legacy_tfidf_score", 0.0) or 0.0)
-        score = decision_details.get("legacy_trigger_score")
-        if score is None:
-            score = max(kw_score, tfidf_score)
-        metric_label = "Оценка старого контура"
-    elif decision_details and "p_spam_adjusted" in decision_details:
+    if decision_details and "p_spam_adjusted" in decision_details:
         score = float(decision_details["p_spam_adjusted"])
         metric_label = "p_spam"
     else:
@@ -80,48 +73,50 @@ def format_simple_card(
         Action.APPROVE: ("✅", "Сообщение пропущено"),
     }.get(action, ("ℹ️", "Информация"))
 
-    card_lines: list[str] = [
-        f"{icon} <b>Инцидент #{spam_id}</b>",
-        f"👤 {html.escape(user_name)}",
-        f"📊 {metric_label}: <b>{score:.0%}</b>",
-        f"🔗 <a href='{msg_link}'>Открыть сообщение</a>",
-        "",
-        f"📝 <i>{preview}</i>",
-        "",
-        f"⚙️ <b>{status}</b>",
-    ]
+    meta_preview = decision_details.get("meta_preview") if decision_details else None
+    p_spam_adjusted = float(decision_details.get("p_spam_adjusted", score)) if decision_details else score
 
     if legacy_mode:
-        trigger = _format_trigger(decision_details.get("legacy_trigger"))
-        legacy_action = _format_action_title(decision_details.get("legacy_action", action))
-        card_lines.extend([
-            "",
-            "🕰️ <b>Старый контур</b>",
-            f" • Keyword: <b>{kw_score:.0%}</b>",
-            f" • TF-IDF: <b>{tfidf_score:.0%}</b>",
-            f" • Итог: <b>{legacy_action}</b> (триггер: {trigger})",
-        ])
+        legacy_value = f"TF-IDF {tfidf_score:.0%}"
+    else:
+        legacy_value = "нет данных"
 
-        meta_preview = decision_details.get("meta_preview") if decision_details else None
-        if meta_preview:
-            meta_action = _format_action_title(meta_preview.get("recommended_action"))
-            card_lines.extend([
-                "",
-                "🚀 <b>Новая система</b>",
-                f" • p_spam: <b>{meta_preview.get('p_spam', 0.0):.0%}</b>",
-                f" • Рекомендация: <b>{meta_action}</b>",
-            ])
+    if meta_preview:
+        meta_label = "LifeSmart"
+        meta_value = float(meta_preview.get("p_spam", 0.0) or 0.0)
+    elif decision_details and "p_spam_adjusted" in decision_details:
+        meta_label = "LifeSmart"
+        meta_value = p_spam_adjusted
+    else:
+        meta_label = metric_label
+        meta_value = score
 
-    if decision_details and 'policy_mode' in decision_details:
-        card_lines.extend([
-            "",
-            f"🛠️ Режим: <code>{decision_details['policy_mode']}</code>",
-        ])
+    policy_mode_value = settings.POLICY_MODE
+    if decision_details and decision_details.get("policy_mode"):
+        policy_mode_value = decision_details["policy_mode"]
+
+    header_line = f"{icon} <b>Инцидент #{spam_id}</b>"
+    if policy_mode_value:
+        header_line += f" · <code>{policy_mode_value}</code>"
+
+    card_lines: list[str] = [
+        header_line,
+        f"👤 {html.escape(user_name)}",
+        "",
+        "📈 <b>Оценка контуров</b>",
+        f"• Старый контур: {legacy_value}",
+        f"• Новый контур: {meta_label} {meta_value:.0%}",
+        "",
+        "📝 <b>Сообщение</b>",
+        f"<i>{preview}</i>",
+        "",
+        f"🔗 <a href='{msg_link}'>Открыть сообщение</a>",
+    ]
 
     if action == Action.NOTIFY:
         card_lines.extend([
             "",
-            f"ℹ️ /debug {spam_id} — подробности",
+            # f"ℹ️ /debug {spam_id} — подробности",
         ])
     else:
         card_lines.extend([
