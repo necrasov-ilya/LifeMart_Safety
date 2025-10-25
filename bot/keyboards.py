@@ -76,11 +76,6 @@ def format_simple_card(
     meta_preview = decision_details.get("meta_preview") if decision_details else None
     p_spam_adjusted = float(decision_details.get("p_spam_adjusted", score)) if decision_details else score
 
-    if legacy_mode:
-        legacy_value = f"TF-IDF {tfidf_score:.0%}"
-    else:
-        legacy_value = "нет данных"
-
     if meta_preview:
         meta_label = "LifeSmart"
         meta_value = float(meta_preview.get("p_spam", 0.0) or 0.0)
@@ -99,19 +94,29 @@ def format_simple_card(
     if policy_mode_value:
         header_line += f" · <code>{policy_mode_value}</code>"
 
+    if legacy_mode:
+        legacy_value = f"TF-IDF {tfidf_score:.0%}"
+    else:
+        legacy_value = None
+
     card_lines: list[str] = [
         header_line,
         f"👤 {html.escape(user_name)}",
         "",
         "📈 <b>Оценка контуров</b>",
-        f"• Старый контур: {legacy_value}",
+    ]
+
+    if legacy_value is not None:
+        card_lines.append(f"• Старый контур: {legacy_value}")
+
+    card_lines.extend([
         f"• Новый контур: {meta_label} {meta_value:.0%}",
         "",
         "📝 <b>Сообщение</b>",
         f"<i>{preview}</i>",
         "",
         f"🔗 <a href='{msg_link}'>Открыть сообщение</a>",
-    ]
+    ])
 
     if action == Action.NOTIFY:
         card_lines.extend([

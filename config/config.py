@@ -101,7 +101,8 @@ def _build_settings() -> Settings:
     if embedding_mode not in {"api", "ollama", "local", "disabled"}:
         raise ValueError("EMBEDDING_MODE должен быть api | ollama | local | disabled")
     
-    embedding_model_id = os.environ.get("EMBEDDING_MODEL_ID", "qllama/multilingual-e5-small")
+    default_model_id = "mistral-embed" if embedding_mode == "api" else "qllama/multilingual-e5-small"
+    embedding_model_id = os.environ.get("EMBEDDING_MODEL_ID", default_model_id)
     ollama_model = os.environ.get("OLLAMA_MODEL", embedding_model_id)
     ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     

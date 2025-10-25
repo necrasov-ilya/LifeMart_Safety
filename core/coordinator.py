@@ -208,6 +208,8 @@ class FilterCoordinator:
         user_capsule = None
         embedding_vectors = None
         embedding_result = None
+        emb_debug: Dict[str, Any] = {}
+        degraded_ctx_flag = False
         
         if self.embedding_filter and self.embedding_filter.is_ready() and metadata:
             from utils.textprep import (
@@ -259,6 +261,7 @@ class FilterCoordinator:
                 user_id=metadata.user_id if metadata else None,
                 enable_user_cache=True
             )
+            degraded_ctx_flag = emb_debug.get('degraded_ctx', False)
             
             LOGGER.debug(
                 f"Embeddings: E_msg={'✓' if embedding_vectors.E_msg else '✗'}, "
@@ -278,10 +281,6 @@ class FilterCoordinator:
                 text=text,
                 timestamp=metadata.timestamp
             )
-            
-            # Инвалидируем кэш E_user (новое сообщение)
-            if self.embedding_filter:
-                self.embedding_filter.invalidate_user_cache(metadata.user_id)
         
         # Шаг 5: Собираем результат
         result = AnalysisResult(
@@ -291,7 +290,8 @@ class FilterCoordinator:
             metadata=metadata,
             context_capsule=context_capsule,
             user_capsule=user_capsule,
-            embedding_vectors=embedding_vectors
+            embedding_vectors=embedding_vectors,
+            degraded_ctx=degraded_ctx_flag
         )
         
         LOGGER.info(

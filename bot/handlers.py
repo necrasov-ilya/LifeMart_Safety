@@ -4,6 +4,7 @@ import html
 import time
 from pathlib import Path
 
+from collections import OrderedDict
 from telegram import Message, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -34,6 +35,7 @@ tfidf_filter = TfidfFilter()
 embedding_filter = EmbeddingFilter(
     mode=settings.EMBEDDING_MODE,
     api_key=settings.MISTRAL_API_KEY,
+    model_id=settings.EMBEDDING_MODEL_ID,
     ollama_model=settings.OLLAMA_MODEL,
     ollama_base_url=settings.OLLAMA_BASE_URL
 )
@@ -62,11 +64,15 @@ dataset_manager = DatasetManager(
     Path(__file__).resolve().parents[1] / "data" / "messages.csv"
 )
 
+# Ограничения для буферов, чтобы не допускать неконтролируемого роста памяти
+MAX_PENDING_QUEUE = 200
+MAX_SPAM_STORAGE = 500
+
 # Хранилище для pending модераторских решений
-PENDING: dict[tuple[int, int], tuple[str, str, int, AnalysisResult]] = {}
+PENDING: OrderedDict[tuple[int, int], tuple[str, str, int, AnalysisResult]] = OrderedDict()
 
 # Хранилище для debug информации (spam_id -> детальная информация)
-SPAM_STORAGE: dict[int, dict] = {}
+SPAM_STORAGE: OrderedDict[int, dict] = OrderedDict()
 SPAM_ID_COUNTER = 0
 
 
@@ -136,7 +142,12 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     p_spam = None
     meta_debug = None
     
-    if meta_classifier.is_ready():
+    embeddings_available = (
+        analysis.embedding_vectors is not None
+        and analysis.embedding_vectors.E_msg is not None
+    )
+
+    if meta_classifier.is_ready() and embeddings_available:
         try:
             p_spam, meta_debug = await meta_classifier.predict_proba(text, analysis)
             
@@ -152,6 +163,11 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 analysis = replace(analysis, meta_proba=p_spam, meta_debug=meta_debug)
         except Exception as e:
             LOGGER.error(f"MetaClassifier failed: {e}", exc_info=True)
+    else:
+        if not meta_classifier.is_ready():
+            LOGGER.warning("MetaClassifier skipped: models not ready")
+        elif not embeddings_available:
+            LOGGER.warning("MetaClassifier skipped: embeddings unavailable, falling back to classic filters")
     
     # Шаг 3: Принятие решения (теперь возвращает action + decision_details)
     action, decision_details = policy_engine.decide_action(analysis)
@@ -192,6 +208,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "action": action,
         "decision_details": decision_details  # Добавляем детали решения
     }
+    while len(SPAM_STORAGE) > MAX_SPAM_STORAGE:
+        removed_id, _ = SPAM_STORAGE.popitem(last=False)
+        LOGGER.debug(f"Trimmed SPAM_STORAGE, evicted spam_id={removed_id}")
     
     # Формируем карточку (простую или детальную в зависимости от DETAILED_DEBUG_INFO)
     card = format_notification_card(
@@ -227,6 +246,9 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             msg.from_user.id,
             analysis
         )
+        while len(PENDING) > MAX_PENDING_QUEUE:
+            removed_key, _ = PENDING.popitem(last=False)
+            LOGGER.debug(f"Trimmed PENDING queue, evicted key={removed_key}")
     
     if action in (Action.DELETE, Action.KICK):
         try:
@@ -484,7 +506,7 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     threshold_name = context.args[0].lower()
-    
+
     try:
         new_value = float(context.args[1])
     except ValueError:
@@ -494,8 +516,16 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Пытаемся установить порог
-    if not runtime_config.set_threshold(threshold_name, new_value):
+    if not 0.0 <= new_value <= 1.0:
+        await update.effective_message.reply_text(
+            f"❌ Некорректное значение: {new_value:.2f}\n"
+            "Ожидается число от 0.0 до 1.0"
+        )
+        return
+
+    allowed_thresholds = {"meta_notify", "meta_delete", "meta_kick"}
+
+    if threshold_name not in allowed_thresholds:
         await update.effective_message.reply_html(
             f"❌ Неизвестный порог: <code>{html.escape(threshold_name)}</code>\n\n"
             "<b>Доступные пороги:</b>\n"
@@ -505,25 +535,30 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Сохраняем старое значение
-    old_value = getattr(runtime_config, threshold_name, None)
-    
-    if runtime_config.set_threshold(threshold_name, new_value):
-        LOGGER.info(
-            f"Threshold changed: {threshold_name} {old_value} → {new_value} "
-            f"(by user {user.id})"
-        )
-        
-        await update.effective_message.reply_html(
-            "✅ <b>Порог изменён</b>\n\n"
-            f" • Параметр: <code>{html.escape(threshold_name)}</code>\n"
-            f" • Было: <code>{old_value:.2f}</code>\n"
-            f" • Стало: <code>{new_value:.2f}</code>\n\n"
-            "Изменения применены."
-        )
-    else:
-        await update.effective_message.reply_text("❌ Не удалось установить порог")
+    old_value = getattr(runtime_config, threshold_name)
 
+    if not runtime_config.set_threshold(threshold_name, new_value):
+        await update.effective_message.reply_text(
+            "❌ Не удалось применить новый порог"
+        )
+        return
+
+    setattr(policy_engine, threshold_name, getattr(runtime_config, threshold_name))
+
+    LOGGER.info(
+        f"Threshold changed: {threshold_name} {old_value} → {new_value} "
+        f"(by user {user.id})"
+    )
+
+    await update.effective_message.reply_html(
+        "✅ <b>Порог изменён</b>\n\n"
+        f" • Параметр: <code>{html.escape(threshold_name)}</code>\n"
+        f" • Было: <code>{old_value:.2f}</code>\n"
+        f" • Стало: <code>{new_value:.2f}</code>\n\n"
+        "Изменения применены."
+    )
+
+    return
 
 async def cmd_setdownweight(update: Update, context):
     """Изменить понижающий множитель"""
@@ -549,7 +584,7 @@ async def cmd_setdownweight(update: Update, context):
         return
 
     downweight_type = context.args[0].lower()
-    
+
     try:
         new_value = float(context.args[1])
     except ValueError:
@@ -559,17 +594,59 @@ async def cmd_setdownweight(update: Update, context):
         )
         return
 
-    if runtime_config.set_downweight(downweight_type, new_value):
-        LOGGER.info(f"Downweight changed: {downweight_type} → {new_value} (by user {user.id})")
-        await update.effective_message.reply_html(
-            f"✅ <b>Множитель изменён</b>\n\n"
-            f" • Тип: <code>{html.escape(downweight_type)}</code>\n"
-            f" • Новое значение: <code>{new_value:.2f}</code>\n\n"
-            "Изменения применены."
+    if not 0.0 <= new_value <= 1.0:
+        await update.effective_message.reply_text(
+            f"❌ Некорректное значение: {new_value:.2f}\n"
+            "Ожидается число от 0.0 до 1.0"
         )
-    else:
-        await update.effective_message.reply_text("❌ Неизвестный тип множителя")
+        return
 
+    runtime_attr_map = {
+        "announcement": "meta_downweight_announcement",
+        "reply_to_staff": "meta_downweight_reply_to_staff",
+        "whitelist": "meta_downweight_whitelist",
+    }
+
+    policy_attr_map = {
+        "announcement": "downweight_announcement",
+        "reply_to_staff": "downweight_reply_to_staff",
+        "whitelist": "downweight_whitelist",
+    }
+
+    runtime_attr = runtime_attr_map.get(downweight_type)
+
+    if not runtime_attr:
+        await update.effective_message.reply_html(
+            f"❌ Неизвестный тип множителя: <code>{html.escape(downweight_type)}</code>\n\n"
+            "<b>Доступные типы:</b>\n"
+            " • <code>announcement</code>\n"
+            " • <code>reply_to_staff</code>\n"
+            " • <code>whitelist</code>"
+        )
+        return
+
+    old_value = getattr(runtime_config, runtime_attr)
+
+    if not runtime_config.set_downweight(downweight_type, new_value):
+        await update.effective_message.reply_text("❌ Не удалось применить новый множитель")
+        return
+
+    policy_attr = policy_attr_map[downweight_type]
+    setattr(policy_engine, policy_attr, getattr(runtime_config, runtime_attr))
+
+    LOGGER.info(
+        f"Downweight changed: {downweight_type} {old_value} → {new_value} (by user {user.id})"
+    )
+
+    await update.effective_message.reply_html(
+        "✅ <b>Множитель изменён</b>\n\n"
+        f" • Тип: <code>{html.escape(downweight_type)}</code>\n"
+        f" • Было: <code>{old_value:.2f}</code>\n"
+        f" • Стало: <code>{new_value:.2f}</code>\n\n"
+        "Изменения применены."
+    )
+
+    return
 
 async def cmd_resetconfig(update: Update, _):
     """Сбросить все изменения конфигурации к значениям по умолчанию"""
@@ -590,6 +667,16 @@ async def cmd_resetconfig(update: Update, _):
         return
 
     runtime_config.reset_overrides()
+
+    # Синхронизируем активный движок политики с восстановленными значениями
+    policy_engine.policy_mode = runtime_config.policy_mode
+    policy_engine.meta_notify = runtime_config.meta_notify
+    policy_engine.meta_delete = runtime_config.meta_delete
+    policy_engine.meta_kick = runtime_config.meta_kick
+    policy_engine.downweight_announcement = runtime_config.meta_downweight_announcement
+    policy_engine.downweight_reply_to_staff = runtime_config.meta_downweight_reply_to_staff
+    policy_engine.downweight_whitelist = runtime_config.meta_downweight_whitelist
+
     LOGGER.info(f"Configuration reset to defaults (by user {user.id})")
     
     overrides_text = "\n".join(

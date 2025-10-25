@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import httpx
+
 from core.types import FilterResult, EmbeddingVectors
 from filters.base import BaseFilter
 from utils.logger import get_logger
@@ -144,12 +146,6 @@ class OllamaProvider(EmbeddingProvider):
             (embeddings_list, status_message)
             embeddings_list - список векторов (None если ошибка для конкретного текста)
         """
-        try:
-            import httpx
-        except ImportError:
-            LOGGER.error("httpx not installed")
-            return [None] * len(texts), "httpx not installed"
-        
         if not texts:
             return [], "No texts provided"
         
@@ -202,6 +198,84 @@ class OllamaProvider(EmbeddingProvider):
         LOGGER.info(status_msg)
         
         return embeddings, status_msg
+
+    async def get_embedding(self, text: str) -> tuple[list[float] | None, str]:
+        """
+        LEGACY: получение одного вектора (с обёрткой над batch).
+        """
+        embeddings, status = await self.get_embeddings_batch([text])
+        if embeddings and embeddings[0]:
+            return embeddings[0], status
+        return None, status
+
+
+class MistralAPIProvider(EmbeddingProvider):
+    """Провайдер для Mistral API / других HTTP API, поддерживающих пакетный ввод."""
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "mistral-embed",
+        endpoint: str = "https://api.mistral.ai/v1/embeddings",
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.endpoint = endpoint.rstrip("/")
+        self.default_timeout = 15  # seconds
+        LOGGER.info(f"Initialized MistralAPIProvider: model={model}, endpoint={self.endpoint}")
+
+    async def get_embeddings_batch(
+        self,
+        texts: List[str],
+        timeout_ms: Optional[int] = None
+    ) -> Tuple[List[Optional[List[float]]], str]:
+        if not texts:
+            return [], "No texts provided"
+
+        timeout_sec = (timeout_ms / 1000) if timeout_ms else self.default_timeout
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "input": texts,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_sec) as client:
+                response = await client.post(self.endpoint, headers=headers, json=payload)
+        except httpx.TimeoutException:
+            LOGGER.error("Mistral embedding request timed out")
+            return [None] * len(texts), "timeout"
+        except Exception as exc:
+            LOGGER.error(f"Mistral embedding request failed: {exc}")
+            return [None] * len(texts), str(exc)
+
+        if response.status_code != 200:
+            try:
+                error_payload = response.json()
+            except Exception:
+                error_payload = response.text
+            LOGGER.error(f"Mistral API error {response.status_code}: {error_payload}")
+            return [None] * len(texts), f"api_error_{response.status_code}"
+
+        data = response.json()
+        embeddings: List[Optional[List[float]]] = [None] * len(texts)
+
+        for item in data.get("data", []):
+            index = item.get("index")
+            vector = item.get("embedding")
+            if index is None or index >= len(embeddings):
+                continue
+            embeddings[index] = vector
+
+        success = sum(1 for emb in embeddings if emb is not None)
+        status = f"API batch: {success}/{len(texts)} OK"
+        LOGGER.info(status)
+
+        return embeddings, status
     
     async def get_embedding(self, text: str) -> tuple[list[float] | None, str]:
         """
@@ -255,6 +329,7 @@ class EmbeddingFilter(BaseFilter):
         self,
         mode: str = "ollama",
         api_key: str | None = None,
+        model_id: str | None = None,
         model_path: Path | str | None = None,
         ollama_model: str | None = None,
         ollama_base_url: str | None = None,
@@ -265,6 +340,7 @@ class EmbeddingFilter(BaseFilter):
         self.mode = mode.lower()
         self.provider: EmbeddingProvider | None = None
         self.timeout_ms = timeout_ms
+        self.model_id = model_id
         
         # Кэш для user-эмбеддингов
         self.user_cache = EmbeddingCache(
@@ -278,6 +354,14 @@ class EmbeddingFilter(BaseFilter):
             base_url = ollama_base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
             self.provider = OllamaProvider(model, base_url)
             LOGGER.info(f"Initialized OllamaProvider: {model} at {base_url}")
+        
+        elif self.mode == "api":
+            if not api_key:
+                LOGGER.error("Embedding mode 'api' выбран, но MISTRAL_API_KEY не задан")
+            else:
+                model = model_id or os.getenv("EMBEDDING_MODEL_ID", "mistral-embed")
+                self.provider = MistralAPIProvider(api_key=api_key, model=model)
+                LOGGER.info(f"Initialized MistralAPIProvider: model={model}")
         
         elif self.mode == "local":
             if model_path:
@@ -359,6 +443,29 @@ class EmbeddingFilter(BaseFilter):
             e_msg = embeddings[0] if len(embeddings) > 0 else None
             e_ctx = embeddings[1] if len(embeddings) > 1 and context_capsule else None
             e_user = embeddings[2] if len(embeddings) > 2 and user_capsule and not cached_e_user else cached_e_user
+
+            # Fallback для основного сообщения, если batch вернул None
+            if e_msg is None:
+                if hasattr(self.provider, "get_embedding"):
+                    try:
+                        fallback_msg, fallback_status = await self.provider.get_embedding(message_capsule)
+                        if fallback_msg:
+                            e_msg = fallback_msg
+                            debug_info["fallback_msg"] = fallback_status
+                            LOGGER.info("Fallback embedding succeeded for message capsule")
+                    except Exception as exc:
+                        LOGGER.error(f"Fallback embedding for message failed: {exc}")
+
+            # Контекст опционален: пробуем fallback, иначе помечаем degraded_ctx
+            if context_capsule and e_ctx is None and hasattr(self.provider, "get_embedding"):
+                try:
+                    fallback_ctx, fallback_status = await self.provider.get_embedding(context_capsule)
+                    if fallback_ctx:
+                        e_ctx = fallback_ctx
+                        debug_info["fallback_ctx"] = fallback_status
+                        LOGGER.info("Fallback embedding succeeded for context capsule")
+                except Exception as exc:
+                    LOGGER.debug(f"Fallback context embedding failed: {exc}")
             
             # Проверка деградации
             if context_capsule and not e_ctx:

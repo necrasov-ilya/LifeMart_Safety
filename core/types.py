@@ -58,6 +58,7 @@ class AnalysisResult:
     user_capsule: str | None = None     # Капсула истории пользователя
     embedding_vectors: EmbeddingVectors | None = None
     applied_downweights: List[str] = field(default_factory=list)  # Примененные множители
+    degraded_ctx: bool = False
     
     @property
     def average_score(self) -> float:

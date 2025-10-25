@@ -81,11 +81,8 @@ class PolicyEngine:
             return self._decide_legacy_manual(analysis)
 
         if analysis.meta_proba is None:
-            LOGGER.warning("meta_proba is None, returning APPROVE by default")
-            return Action.APPROVE, {
-                'error': 'meta_proba_missing',
-                'action_reason': 'Мета-классификатор не готов'
-            }
+            LOGGER.warning("meta_proba is None, falling back to aggregate filter scores")
+            return self._decide_without_meta(analysis)
         
         p_spam_original = analysis.meta_proba
         
@@ -208,6 +205,29 @@ class PolicyEngine:
         )
 
         return action, decision_details
+
+    def _decide_without_meta(self, analysis: AnalysisResult) -> Tuple[Action, Dict]:
+        """
+        Резервное решение, если метаклассификатор недоступен.
+        Используем агрегированный скор keyword / TF-IDF / embedding и текущие пороги.
+        """
+        # Возвращаемся к наследуемой логике, чтобы старый контур видел привычные данные.
+        legacy_action, legacy_details = self._decide_legacy_manual(analysis)
+        decision_details = dict(legacy_details)
+        if self.policy_mode != "legacy-manual":
+            decision_details["legacy_mode"] = False
+        decision_details["fallback_meta"] = True
+        decision_details["degraded_ctx"] = getattr(analysis, "degraded_ctx", False)
+
+        LOGGER.info(
+            "Fallback decision without meta score: %s | keyword=%.3f | tfidf=%.3f | mode=%s",
+            legacy_action.name,
+            analysis.keyword_result.score if analysis.keyword_result else 0.0,
+            analysis.tfidf_result.score if analysis.tfidf_result else 0.0,
+            self.policy_mode,
+        )
+
+        return legacy_action, decision_details
 
     def _apply_downweights(self, analysis: AnalysisResult) -> Tuple[float, List[Dict]]:
         """
