@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from config.config import settings
+from storage import init_storage
 
 # ───────────────────────────────
 # Параметры форматирования
@@ -29,7 +30,6 @@ LOG_DIR.mkdir(exist_ok=True)
 LOG_FMT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 DATE_FMT = "%Y-%m-%d %H:%M:%S"
 LOG_LEVEL = getattr(logging, settings.LOG_LEVEL, logging.INFO)
-
 
 def _init_root_logger() -> None:
     """Настроить root-логгер только один раз."""
@@ -54,9 +54,49 @@ def _init_root_logger() -> None:
     file_handler.setFormatter(logging.Formatter(LOG_FMT, DATE_FMT))
     root.addHandler(file_handler)
 
+    try:
+        sqlite_handler = _SQLiteLogHandler()
+        sqlite_handler.setLevel(logging.WARNING)
+        root.addHandler(sqlite_handler)
+    except Exception:
+        # storage initialisation should not break logging on failure
+        pass
+
 
 # Инициализируем немедленно при импорте
 _init_root_logger()
+
+
+class _SQLiteLogHandler(logging.Handler):
+    """Persist warnings/errors into SQLite for further analytics."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._storage = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.WARNING:
+            return
+
+        try:
+            if self._storage is None:
+                self._storage = init_storage()
+
+            context: dict[str, str] | None = None
+            if record.exc_info:
+                context = {"exc_info": self.formatException(record.exc_info)}
+            elif record.stack_info:
+                context = {"stack": self.formatStack(record.stack_info)}
+
+            self._storage.logs.write(
+                level=record.levelname,
+                logger=record.name,
+                message=record.getMessage(),
+                context=context,
+            )
+        except Exception:
+            # Silently ignore storage errors to avoid recursion
+            pass
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:

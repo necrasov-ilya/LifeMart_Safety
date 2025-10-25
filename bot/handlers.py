@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import html
+import json
 import time
+from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
-
 from collections import OrderedDict
 from telegram import Message, Update
 from telegram.constants import ParseMode
@@ -26,9 +28,50 @@ from services.policy import PolicyEngine
 from services.dataset import DatasetManager
 from services.meta_classifier import MetaClassifier  # NEW
 from bot.keyboards import moderator_keyboard, format_debug_card, format_notification_card
+from storage import init_storage
+from storage.interfaces import ModerationEventInput, ModerationActionInput
 from utils.logger import get_logger
 
 LOGGER = get_logger(__name__)
+STORAGE = init_storage()
+
+
+@dataclass(slots=True)
+class PendingEntry:
+    text: str
+    offender_name: str
+    offender_id: int
+    analysis: AnalysisResult
+    event_id: int | None
+    created_ts: float
+
+
+def _hash_text(value: str) -> str:
+    return sha256(value.encode("utf-8")).hexdigest()
+
+
+def _extract_event_confidence(analysis: AnalysisResult, decision_details: dict | None) -> float:
+    if decision_details:
+        for key in ("p_spam_adjusted", "p_spam_original"):
+            raw = decision_details.get(key)
+            if raw is not None:
+                try:
+                    return float(raw)
+                except (TypeError, ValueError):
+                    continue
+
+        meta_preview = decision_details.get("meta_preview")
+        if isinstance(meta_preview, dict):
+            raw_preview = meta_preview.get("p_spam")
+            if raw_preview is not None:
+                try:
+                    return float(raw_preview)
+                except (TypeError, ValueError):
+                    pass
+
+    if analysis.meta_proba is not None:
+        return float(analysis.meta_proba)
+    return float(analysis.average_score)
 
 keyword_filter = KeywordFilter()
 tfidf_filter = TfidfFilter()
@@ -60,6 +103,19 @@ LOGGER.info(f"  META_DELETE: {runtime_config.meta_delete}")
 LOGGER.info(f"  META_KICK: {runtime_config.meta_kick}")
 LOGGER.info(f"  META_CLASSIFIER_READY: {meta_classifier.is_ready()}")
 
+
+def _apply_runtime_to_policy_engine() -> None:
+    policy_engine.policy_mode = runtime_config.policy_mode
+    policy_engine.meta_notify = runtime_config.meta_notify
+    policy_engine.meta_delete = runtime_config.meta_delete
+    policy_engine.meta_kick = runtime_config.meta_kick
+    policy_engine.downweight_announcement = runtime_config.meta_downweight_announcement
+    policy_engine.downweight_reply_to_staff = runtime_config.meta_downweight_reply_to_staff
+    policy_engine.downweight_whitelist = runtime_config.meta_downweight_whitelist
+
+
+_apply_runtime_to_policy_engine()
+
 dataset_manager = DatasetManager(
     Path(__file__).resolve().parents[1] / "data" / "messages.csv"
 )
@@ -69,7 +125,7 @@ MAX_PENDING_QUEUE = 200
 MAX_SPAM_STORAGE = 500
 
 # Хранилище для pending модераторских решений
-PENDING: OrderedDict[tuple[int, int], tuple[str, str, int, AnalysisResult]] = OrderedDict()
+PENDING: OrderedDict[tuple[int, int], PendingEntry] = OrderedDict()
 
 # Хранилище для debug информации (spam_id -> детальная информация)
 SPAM_STORAGE: OrderedDict[int, dict] = OrderedDict()
@@ -124,6 +180,15 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     msg: Message = update.effective_message
     if not msg or not msg.from_user:
         return
+
+    try:
+        STORAGE.users.upsert(
+            msg.from_user.id,
+            username=msg.from_user.username,
+            is_whitelisted=is_whitelisted(msg.from_user.id),
+        )
+    except Exception:
+        pass
 
     # Временное логирование для определения правильного ID чата
     LOGGER.info(f"📍 Получено сообщение из чата ID: {msg.chat_id} (тип: {msg.chat.type})")
@@ -186,6 +251,28 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"avg={analysis.average_score:.2f}, action={action.value}"
         )
     
+    event_id = None
+    try:
+        event_id = STORAGE.events.record_event(
+            ModerationEventInput(
+                chat_id=msg.chat_id,
+                message_id=msg.message_id,
+                user_id=msg.from_user.id,
+                username=msg.from_user.username,
+                text_hash=_hash_text(text),
+                text_length=len(text),
+                action=action.value,
+                action_confidence=_extract_event_confidence(analysis, decision_details),
+                filter_keyword_score=analysis.keyword_result.score if analysis.keyword_result else None,
+                filter_tfidf_score=analysis.tfidf_result.score if analysis.tfidf_result else None,
+                filter_embedding_score=(analysis.embedding_result.score if analysis.embedding_result else None),
+                meta_debug=json.dumps(analysis.meta_debug, ensure_ascii=False, default=str) if analysis.meta_debug else None,
+                source='bot',
+            )
+        )
+    except Exception as exc:
+        LOGGER.warning(f"Failed to record moderation event: {exc}")
+
     if action == Action.APPROVE:
         return
     
@@ -206,7 +293,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "msg_link": msg_link,
         "analysis": analysis,
         "action": action,
-        "decision_details": decision_details  # Добавляем детали решения
+        "decision_details": decision_details,  # Добавляем детали решения
+        "event_id": event_id,
     }
     while len(SPAM_STORAGE) > MAX_SPAM_STORAGE:
         removed_id, _ = SPAM_STORAGE.popitem(last=False)
@@ -228,7 +316,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     # Отправляем карточку модератору
     # Кнопки только для NOTIFY, для DELETE/KICK - без кнопок
-    keyboard = moderator_keyboard(msg.chat_id, msg.message_id) if action == Action.NOTIFY else None
+    keyboard = moderator_keyboard(msg.chat_id, msg.message_id, event_id) if action == Action.NOTIFY else None
     
     await context.bot.send_message(
         settings.MODERATOR_CHAT_ID,
@@ -240,15 +328,17 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     
     # Сохраняем в PENDING только если нужно решение модератора
     if action == Action.NOTIFY:
-        PENDING[(msg.chat_id, msg.message_id)] = (
-            text,
-            msg.from_user.full_name,
-            msg.from_user.id,
-            analysis
+        PENDING[(msg.chat_id, msg.message_id)] = PendingEntry(
+            text=text,
+            offender_name=msg.from_user.full_name,
+            offender_id=msg.from_user.id,
+            analysis=analysis,
+            event_id=event_id,
+            created_ts=time.time(),
         )
         while len(PENDING) > MAX_PENDING_QUEUE:
-            removed_key, _ = PENDING.popitem(last=False)
-            LOGGER.debug(f"Trimmed PENDING queue, evicted key={removed_key}")
+            removed_key, removed_entry = PENDING.popitem(last=False)
+            LOGGER.debug("Trimmed PENDING queue, evicted key=%s, event_id=%s", removed_key, getattr(removed_entry, 'event_id', None))
     
     if action in (Action.DELETE, Action.KICK):
         try:
@@ -276,14 +366,36 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     await q.answer()
 
-    action, payload = q.data.split(":", 1)
-    chat_id, msg_id = map(int, payload.split(":", 1))
+    parts = q.data.split(":")
+    if len(parts) < 3:
+        LOGGER.warning("Malformed callback payload: %s", q.data)
+        return
 
-    stored = PENDING.pop((chat_id, msg_id), None)
-    if stored:
-        text, offender, offender_id, analysis = stored
+    action = parts[0]
+    try:
+        chat_id = int(parts[1])
+        msg_id = int(parts[2])
+        event_id = int(parts[3]) if len(parts) > 3 else 0
+    except ValueError:
+        LOGGER.warning("Invalid callback payload: %s", q.data)
+        return
+
+    event_id = event_id or None
+
+    stored_entry = PENDING.pop((chat_id, msg_id), None)
+    if stored_entry:
+        text = stored_entry.text
+        offender = stored_entry.offender_name
+        offender_id = stored_entry.offender_id
+        analysis = stored_entry.analysis
+        pending_event_id = stored_entry.event_id
+        took_ms = int((time.time() - stored_entry.created_ts) * 1000)
     else:
-        text, offender, offender_id, analysis = None, "Пользователь", None, None
+        text, offender, offender_id, analysis = None, "????????????", None, None
+        pending_event_id = None
+        took_ms = None
+
+    event_id = event_id or pending_event_id
 
     if action == "kick":
         try:
@@ -315,6 +427,21 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     else:
         info = "Неизвестное действие."
+
+    moderator = q.from_user
+    if event_id and moderator and getattr(moderator, 'id', None):
+        try:
+            STORAGE.events.record_action(
+                ModerationActionInput(
+                    event_id=event_id,
+                    moderator_id=moderator.id,
+                    decision=action,
+                    reason=info,
+                    took_ms=took_ms,
+                )
+            )
+        except Exception as exc:
+            LOGGER.warning(f"Failed to record moderation action: {exc}")
 
     await q.edit_message_reply_markup(reply_markup=None)
     await q.edit_message_text(f"<i>{html.escape(info)}</i>", parse_mode=ParseMode.HTML)
@@ -445,27 +572,37 @@ async def cmd_setpolicy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     new_mode = context.args[0].lower()
+    allowed_modes = {"manual", "legacy-manual", "semi-auto", "auto"}
+    if new_mode not in allowed_modes:
+        await update.effective_message.reply_html(
+            "\u274c \u041d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0439 \u0440\u0435\u0436\u0438\u043c: <code>{}</code>\n\n"
+            "<b>\u0414\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u044b\u0435 \u0440\u0435\u0436\u0438\u043c\u044b:</b>\n"
+            " \u2022 <code>manual</code>\n"
+            " \u2022 <code>legacy-manual</code>\n"
+            " \u2022 <code>semi-auto</code>\n"
+            " \u2022 <code>auto</code>".format(html.escape(new_mode))
+        )
+        return
+
     old_mode = runtime_config.policy_mode
-    
-    try:
-        runtime_config.set_policy_mode(new_mode)
-        policy_engine.policy_mode = runtime_config.policy_mode
-        LOGGER.info(f"Policy mode changed: {old_mode} → {new_mode} (by user {user.id})")
-        
+    if not runtime_config.set_policy_mode(new_mode):
         await update.effective_message.reply_html(
-            "✅ <b>Режим политики изменён</b>\n\n"
-            " • Было: <code>{}</code>\n"
-            " • Стало: <code>{}</code>\n\n"
-            "Изменения применены немедленно.".format(
-                html.escape(old_mode),
-                html.escape(new_mode)
-            )
+            "\u2139\ufe0f \u0420\u0435\u0436\u0438\u043c \u0443\u0436\u0435 \u0430\u043a\u0442\u0438\u0432\u0435\u043d: <code>{}</code>".format(html.escape(old_mode))
         )
-    except ValueError as e:
-        await update.effective_message.reply_html(
-            f"❌ Ошибка: {html.escape(str(e))}\n\n"
-            "���������� ��������: <code>manual</code>, <code>legacy-manual</code>, <code>semi-auto</code>, <code>auto</code>"
+        return
+
+    _apply_runtime_to_policy_engine()
+    LOGGER.info("Policy mode changed: %s -> %s (by user %s)", old_mode, new_mode, user.id)
+
+    await update.effective_message.reply_html(
+        "\u2705 <b>\u0420\u0435\u0436\u0438\u043c \u043f\u043e\u043b\u0438\u0442\u0438\u043a\u0438 \u0438\u0437\u043c\u0435\u043d\u0451\u043d</b>\n\n"
+        " \u2022 \u0411\u044b\u043b\u043e: <code>{}</code>\n"
+        " \u2022 \u0421\u0442\u0430\u043b\u043e: <code>{}</code>\n\n"
+        "\u0418\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u044b \u043d\u0435\u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e.".format(
+            html.escape(old_mode),
+            html.escape(new_mode)
         )
+    )
 
 
 async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -539,24 +676,29 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not runtime_config.set_threshold(threshold_name, new_value):
         await update.effective_message.reply_text(
-            "❌ Не удалось применить новый порог"
+            "⚠️ Не удалось обновить порог"
         )
         return
 
-    setattr(policy_engine, threshold_name, getattr(runtime_config, threshold_name))
+    _apply_runtime_to_policy_engine()
 
     LOGGER.info(
-        f"Threshold changed: {threshold_name} {old_value} → {new_value} "
-        f"(by user {user.id})"
+        "Threshold changed: %s %.2f -> %.2f (by user %s)",
+        threshold_name,
+        old_value,
+        new_value,
+        user.id,
     )
 
-    await update.effective_message.reply_html(
-        "✅ <b>Порог изменён</b>\n\n"
-        f" • Параметр: <code>{html.escape(threshold_name)}</code>\n"
-        f" • Было: <code>{old_value:.2f}</code>\n"
-        f" • Стало: <code>{new_value:.2f}</code>\n\n"
-        "Изменения применены."
+    message = (
+        "⚙️ <b>Порог обновлён</b>\n"
+        f"• Параметр: <code>{html.escape(threshold_name)}</code>\n"
+        f"• Было: <code>{old_value:.2f}</code>\n"
+        f"• Стало: <code>{new_value:.2f}</code>\n"
+        "Настройки применены."
     )
+    await update.effective_message.reply_html(message)
+    return
 
     return
 
@@ -607,45 +749,35 @@ async def cmd_setdownweight(update: Update, context):
         "whitelist": "meta_downweight_whitelist",
     }
 
-    policy_attr_map = {
-        "announcement": "downweight_announcement",
-        "reply_to_staff": "downweight_reply_to_staff",
-        "whitelist": "downweight_whitelist",
-    }
-
     runtime_attr = runtime_attr_map.get(downweight_type)
 
     if not runtime_attr:
-        await update.effective_message.reply_html(
-            f"❌ Неизвестный тип множителя: <code>{html.escape(downweight_type)}</code>\n\n"
-            "<b>Доступные типы:</b>\n"
-            " • <code>announcement</code>\n"
-            " • <code>reply_to_staff</code>\n"
-            " • <code>whitelist</code>"
-        )
+        message = "\n".join([
+            "⛔ Неизвестный множитель: <code>{}</code>".format(html.escape(downweight_type)),
+            "Доступные значения:",
+            "• <code>announcement</code>",
+            "• <code>reply_to_staff</code>",
+            "• <code>whitelist</code>",
+        ])
+        await update.effective_message.reply_html(message)
         return
 
     old_value = getattr(runtime_config, runtime_attr)
 
     if not runtime_config.set_downweight(downweight_type, new_value):
-        await update.effective_message.reply_text("❌ Не удалось применить новый множитель")
+        await update.effective_message.reply_text("⛔ Не удалось применить новый множитель")
         return
 
-    policy_attr = policy_attr_map[downweight_type]
-    setattr(policy_engine, policy_attr, getattr(runtime_config, runtime_attr))
+    _apply_runtime_to_policy_engine()
 
-    LOGGER.info(
-        f"Downweight changed: {downweight_type} {old_value} → {new_value} (by user {user.id})"
-    )
-
-    await update.effective_message.reply_html(
-        "✅ <b>Множитель изменён</b>\n\n"
-        f" • Тип: <code>{html.escape(downweight_type)}</code>\n"
-        f" • Было: <code>{old_value:.2f}</code>\n"
-        f" • Стало: <code>{new_value:.2f}</code>\n\n"
-        "Изменения применены."
-    )
-
+    message = "\n".join([
+        "✅ Множитель обновлён",
+        "• Тип: <code>{}</code>".format(html.escape(downweight_type)),
+        "• Было: <code>{:.2f}</code>".format(old_value),
+        "• Стало: <code>{:.2f}</code>".format(new_value),
+        "Изменения применены.",
+    ])
+    await update.effective_message.reply_html(message)
     return
 
 async def cmd_resetconfig(update: Update, _):
@@ -667,18 +799,10 @@ async def cmd_resetconfig(update: Update, _):
         return
 
     runtime_config.reset_overrides()
-
-    # Синхронизируем активный движок политики с восстановленными значениями
-    policy_engine.policy_mode = runtime_config.policy_mode
-    policy_engine.meta_notify = runtime_config.meta_notify
-    policy_engine.meta_delete = runtime_config.meta_delete
-    policy_engine.meta_kick = runtime_config.meta_kick
-    policy_engine.downweight_announcement = runtime_config.meta_downweight_announcement
-    policy_engine.downweight_reply_to_staff = runtime_config.meta_downweight_reply_to_staff
-    policy_engine.downweight_whitelist = runtime_config.meta_downweight_whitelist
+    _apply_runtime_to_policy_engine()
 
     LOGGER.info(f"Configuration reset to defaults (by user {user.id})")
-    
+
     overrides_text = "\n".join(
         f" • <code>{k}</code> = {v}"
         for k, v in overrides.items()
