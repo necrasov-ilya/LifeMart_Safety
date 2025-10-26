@@ -32,9 +32,9 @@ def _format_trigger(trigger: str | None) -> str:
     return mapping.get(trigger, trigger)
 
 
-def moderator_keyboard(chat_id: int, msg_id: int) -> InlineKeyboardMarkup:
+def moderator_keyboard(chat_id: int, msg_id: int, event_id: int | None = None) -> InlineKeyboardMarkup:
     """Клавиатура для модератора (только для NOTIFY)"""
-    payload = f"{chat_id}:{msg_id}"
+    payload = f"{chat_id}:{msg_id}:{event_id or 0}"
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🚫 Спам/Бан", callback_data=f"kick:{payload}"),

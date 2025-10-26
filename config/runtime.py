@@ -1,114 +1,152 @@
 """
-Динамическая конфигурация для управления настройками в runtime.
-.env файл содержит дефолтные значения, которые могут быть переопределены.
+Runtime configuration overrides that can be changed without restarting the bot.
+.env provides defaults, while overrides are persisted in storage/settings.
 """
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Mapping
 
 from config.config import settings
+from storage import init_storage
 from utils.logger import get_logger
 
 LOGGER = get_logger(__name__)
+STORAGE = init_storage()
+
+
+def _serialize_override(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _deserialize_override(raw: str) -> object:
+    return json.loads(raw)
+
+
+def _values_equal(a: object, b: object) -> bool:
+    if isinstance(a, float) and isinstance(b, float):
+        return math.isclose(a, b, rel_tol=1e-6, abs_tol=1e-9)
+    return a == b
 
 
 @dataclass
 class RuntimeConfig:
-    """Конфигурация которая может изменяться во время работы бота"""
-    
-    # Policy settings
+    """Mutable configuration that can be overridden at runtime."""
+
     policy_mode: str = field(default_factory=lambda: settings.POLICY_MODE)
-    
-    # Meta classifier thresholds
+
     meta_notify: float = field(default_factory=lambda: settings.META_NOTIFY)
     meta_delete: float = field(default_factory=lambda: settings.META_DELETE)
     meta_kick: float = field(default_factory=lambda: settings.META_KICK)
-    
-    # Downweight multipliers
-    meta_downweight_announcement: float = field(default_factory=lambda: settings.META_DOWNWEIGHT_ANNOUNCEMENT)
-    meta_downweight_reply_to_staff: float = field(default_factory=lambda: settings.META_DOWNWEIGHT_REPLY_TO_STAFF)
-    meta_downweight_whitelist: float = field(default_factory=lambda: settings.META_DOWNWEIGHT_WHITELIST)
-    
-    # Tracking overrides
-    _overrides: Dict[str, any] = field(default_factory=dict, repr=False)
-    
-    def set_policy_mode(self, mode: str) -> bool:
-        """Update policy mode override"""
+
+    meta_downweight_announcement: float = field(
+        default_factory=lambda: settings.META_DOWNWEIGHT_ANNOUNCEMENT
+    )
+    meta_downweight_reply_to_staff: float = field(
+        default_factory=lambda: settings.META_DOWNWEIGHT_REPLY_TO_STAFF
+    )
+    meta_downweight_whitelist: float = field(
+        default_factory=lambda: settings.META_DOWNWEIGHT_WHITELIST
+    )
+
+    _overrides: Dict[str, object] = field(default_factory=dict, repr=False)
+
+    def apply_overrides(self, overrides: Mapping[str, str], *, persist: bool = False) -> None:
+        """Apply overrides loaded from storage. persist=False prevents double writes."""
+        for name, raw_value in overrides.items():
+            try:
+                value = _deserialize_override(raw_value)
+            except (TypeError, json.JSONDecodeError) as exc:
+                LOGGER.warning("Failed to decode override %s: %s (%s)", name, raw_value, exc)
+                continue
+
+            if name == "policy_mode":
+                self.set_policy_mode(str(value), persist=persist)
+            elif name in {"meta_notify", "meta_delete", "meta_kick"}:
+                self.set_threshold(name, float(value), persist=persist)
+            elif name in {
+                "meta_downweight_announcement",
+                "meta_downweight_reply_to_staff",
+                "meta_downweight_whitelist",
+            }:
+                suffix = name[len("meta_downweight_") :]
+                self.set_downweight(suffix, float(value), persist=persist)
+            else:
+                LOGGER.debug("Ignoring unknown override key: %s", name)
+
+    def set_policy_mode(self, mode: str, *, persist: bool = True) -> bool:
         if not mode:
             return False
-        mode_normalized = mode.strip().lower().replace("_", "-")
-        if mode_normalized not in {"manual", "semi-auto", "auto", "legacy-manual"}:
+        normalized = mode.strip().lower().replace("_", "-")
+        if normalized not in {"manual", "semi-auto", "auto", "legacy-manual"}:
             return False
 
-        old_value = self.policy_mode
-        self.policy_mode = mode_normalized
-        self._overrides["policy_mode"] = mode_normalized
+        current = self.policy_mode
+        if normalized == current:
+            return False
 
-        LOGGER.info(f"Policy mode changed: {old_value} -> {mode_normalized}")
+        self.policy_mode = normalized
+        self._record_override("policy_mode", normalized, persist=persist)
+
+        if persist:
+            LOGGER.info("Policy mode changed: %s -> %s", current, normalized)
         return True
-    
-    def set_threshold(self, name: str, value: float) -> bool:
-        """Изменить порог мета-классификатора"""
+
+    def set_threshold(self, name: str, value: float, *, persist: bool = True) -> bool:
         if value < 0.0 or value > 1.0:
             return False
-        
-        valid_thresholds = {"meta_notify", "meta_delete", "meta_kick"}
-        threshold_name = name.lower().replace("-", "_")
-        
-        if threshold_name not in valid_thresholds:
+
+        key = name.lower().replace("-", "_")
+        if key not in {"meta_notify", "meta_delete", "meta_kick"}:
             return False
-        
-        old_value = getattr(self, threshold_name)
-        setattr(self, threshold_name, value)
-        self._overrides[threshold_name] = value
-        
-        LOGGER.info(f"Threshold changed: {threshold_name} = {old_value:.2f} → {value:.2f}")
+
+        current = getattr(self, key)
+        if _values_equal(current, value):
+            return False
+
+        setattr(self, key, value)
+        self._record_override(key, value, persist=persist)
+
+        if persist:
+            LOGGER.info("Threshold %s changed: %.2f -> %.2f", key, current, value)
         return True
-    
-    def set_downweight(self, name: str, value: float) -> bool:
-        """
-        Изменить понижающий множитель.
-        
-        Args:
-            name: announcement|reply_to_staff|whitelist
-            value: множитель (обычно 0.7-0.95)
-        
-        Returns:
-            True если успешно
-        """
+
+    def set_downweight(self, name: str, value: float, *, persist: bool = True) -> bool:
         if value < 0.0 or value > 1.0:
-            LOGGER.warning(f"Invalid downweight value: {value} (must be 0.0-1.0)")
+            LOGGER.warning("Invalid downweight value: %s (must be 0.0-1.0)", value)
             return False
-        
-        downweight_map = {
+
+        mapping = {
             "announcement": "meta_downweight_announcement",
             "reply_to_staff": "meta_downweight_reply_to_staff",
-            "whitelist": "meta_downweight_whitelist"
+            "whitelist": "meta_downweight_whitelist",
         }
-        
-        name_normalized = name.lower().replace("-", "_")
-        attr_name = downweight_map.get(name_normalized)
-        
-        if not attr_name or not hasattr(self, attr_name):
-            LOGGER.warning(f"Unknown downweight: {name}")
+
+        key = name.lower().replace("-", "_")
+        attr = mapping.get(key)
+        if not attr:
+            LOGGER.warning("Unknown downweight: %s", name)
             return False
-        
-        old_value = getattr(self, attr_name)
-        setattr(self, attr_name, value)
-        self._overrides[attr_name] = value
-        
-        LOGGER.info(f"Downweight changed: {attr_name} = {old_value:.2f} → {value:.2f}")
+
+        current = getattr(self, attr)
+        if _values_equal(current, value):
+            return False
+
+        setattr(self, attr, value)
+        self._record_override(attr, value, persist=persist)
+
+        if persist:
+            LOGGER.info("Downweight %s changed: %.2f -> %.2f", attr, current, value)
         return True
-    
-    def get_overrides(self) -> Dict[str, any]:
-        """Получить словарь переопределенных значений"""
+
+    def get_overrides(self) -> Dict[str, object]:
         return self._overrides.copy()
-    
+
     def reset_overrides(self) -> None:
-        """Сбросить все переопределения к дефолтным значениям из .env"""
         LOGGER.info("Resetting all overrides to .env defaults")
-        
+
         self.policy_mode = settings.POLICY_MODE
         self.meta_notify = settings.META_NOTIFY
         self.meta_delete = settings.META_DELETE
@@ -116,15 +154,36 @@ class RuntimeConfig:
         self.meta_downweight_announcement = settings.META_DOWNWEIGHT_ANNOUNCEMENT
         self.meta_downweight_reply_to_staff = settings.META_DOWNWEIGHT_REPLY_TO_STAFF
         self.meta_downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
-        
+
+        for key in list(self._overrides.keys()):
+            STORAGE.settings.remove(key)
+
         self._overrides.clear()
-    
+
     def is_default(self, name: str) -> bool:
-        """Проверить использует ли параметр дефолтное значение"""
         return name not in self._overrides
 
+    def _record_override(self, name: str, value: object, *, persist: bool) -> None:
+        default_attr = name.upper()
+        default_value = getattr(settings, default_attr, None)
 
-# Глобальный singleton для runtime конфигурации
+        if default_value is not None and _values_equal(default_value, value):
+            if name in self._overrides:
+                self._overrides.pop(name, None)
+                if persist:
+                    STORAGE.settings.remove(name)
+            return
+
+        self._overrides[name] = value
+        if persist:
+            STORAGE.settings.upsert(name, _serialize_override(value))
+
+
 runtime_config = RuntimeConfig()
+try:
+    runtime_config.apply_overrides(STORAGE.settings.load_overrides(), persist=False)
+except Exception as exc:
+    LOGGER.warning("Failed to apply runtime overrides: %s", exc)
 
 __all__ = ["runtime_config", "RuntimeConfig"]
+
