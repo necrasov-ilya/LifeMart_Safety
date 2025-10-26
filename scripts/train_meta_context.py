@@ -49,6 +49,8 @@ from sklearn.cluster import KMeans
 from joblib import dump
 
 from config.config import settings
+from filters.keyword import KeywordFilter
+from filters.tfidf import TfidfFilter
 from utils.logger import get_logger
 from utils.textprep import (
     normalize_entities,
@@ -175,25 +177,25 @@ def build_centroids(
     embeddings: list[np.ndarray],
     labels: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Вычисляет центроиды для спама и хама.
-    
-    Returns:
-        (spam_centroid, ham_centroid)
-    """
+    """Compute class centroids for spam and ham embeddings."""
     valid_embeddings = [emb for emb in embeddings if emb is not None]
     if not valid_embeddings:
-        raise ValueError("No valid embeddings to compute centroids")
-    
-    # Фильтруем по label
+        LOGGER.warning("No valid embeddings to compute centroids; returning zero vectors.")
+        return np.zeros(1, dtype=float), np.zeros(1, dtype=float)
+
     spam_embs = [emb for emb, label in zip(embeddings, labels) if emb is not None and label == 1]
     ham_embs = [emb for emb, label in zip(embeddings, labels) if emb is not None and label == 0]
-    
+
+    if not spam_embs or not ham_embs:
+        LOGGER.warning("Insufficient embeddings per class; centroids downgraded to zero vectors.")
+        dim = len(spam_embs[0]) if spam_embs else (len(ham_embs[0]) if ham_embs else 1)
+        return np.zeros(dim, dtype=float), np.zeros(dim, dtype=float)
+
     spam_centroid = np.mean(spam_embs, axis=0)
     ham_centroid = np.mean(ham_embs, axis=0)
-    
+
     LOGGER.info(f"Centroids built: spam={spam_centroid.shape}, ham={ham_centroid.shape}")
-    
+
     return spam_centroid, ham_centroid
 
 
@@ -204,65 +206,78 @@ def build_prototypes(
     n_spam_clusters: int = 7,
     n_legit_clusters: int = 4
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-    """
-    Строит прототипы через K-means кластеризацию.
-    
-    Returns:
-        (spam_prototypes, legit_prototypes)
-    """
-    # Разделяем на spam и legit
+    """Build spam and legit prototype vectors via K-means with graceful fallbacks."""
     spam_embs = [emb for emb, label in zip(embeddings, labels) if emb is not None and label == 1]
     legit_embs = [emb for emb, label in zip(embeddings, labels) if emb is not None and label == 0]
-    
-    spam_texts = [text for text, emb, label in zip(texts, embeddings, labels) 
+
+    spam_texts = [text for text, emb, label in zip(texts, embeddings, labels)
                   if emb is not None and label == 1]
-    legit_texts = [text for text, emb, label in zip(texts, embeddings, labels) 
+    legit_texts = [text for text, emb, label in zip(texts, embeddings, labels)
                    if emb is not None and label == 0]
-    
+
     LOGGER.info(f"Building prototypes: spam={len(spam_embs)}, legit={len(legit_embs)}")
-    
-    # K-means для спама
-    spam_prototypes = {}
+
+    if not spam_embs or not legit_embs:
+        LOGGER.warning("No valid embeddings for prototypes; returning zero vectors.")
+        dim = len(spam_embs[0]) if spam_embs else (len(legit_embs[0]) if legit_embs else 1)
+        zero = np.zeros(dim, dtype=float)
+        spam_prototypes = {name: zero.copy() for name in SPAM_PROTOTYPES}
+        legit_prototypes = {name: zero.copy() for name in LEGIT_PROTOTYPES}
+        return spam_prototypes, legit_prototypes
+
+    spam_prototypes: Dict[str, np.ndarray] = {}
     if len(spam_embs) >= n_spam_clusters:
         kmeans_spam = KMeans(n_clusters=n_spam_clusters, random_state=42, n_init=10)
         kmeans_spam.fit(spam_embs)
-        
         for i, proto_name in enumerate(SPAM_PROTOTYPES[:n_spam_clusters]):
-            spam_prototypes[proto_name] = kmeans_spam.cluster_centers_[i]
-            
-            # Найдём ближайший текст к центру кластера для логирования
-            cluster_samples = [emb for emb, label_cluster in zip(spam_embs, kmeans_spam.labels_) if label_cluster == i]
+            center = kmeans_spam.cluster_centers_[i]
+            spam_prototypes[proto_name] = center
+            cluster_samples = [emb for emb, cluster_label in zip(spam_embs, kmeans_spam.labels_) if cluster_label == i]
             if cluster_samples:
-                closest_idx = np.argmin([np.linalg.norm(emb - spam_prototypes[proto_name]) for emb in cluster_samples])
+                closest_idx = np.argmin([np.linalg.norm(emb - center) for emb in cluster_samples])
                 sample_text = spam_texts[closest_idx] if closest_idx < len(spam_texts) else "N/A"
                 LOGGER.info(f"  Spam prototype '{proto_name}': sample='{sample_text[:60]}...'")
     else:
-        LOGGER.warning(f"Not enough spam samples for {n_spam_clusters} clusters, using centroids")
+        LOGGER.warning(f"Not enough spam samples for {n_spam_clusters} clusters; using class centroid")
         spam_centroid = np.mean(spam_embs, axis=0)
         for proto_name in SPAM_PROTOTYPES[:n_spam_clusters]:
             spam_prototypes[proto_name] = spam_centroid
-    
-    # K-means для легитимных
-    legit_prototypes = {}
+
+    legit_prototypes: Dict[str, np.ndarray] = {}
     if len(legit_embs) >= n_legit_clusters:
         kmeans_legit = KMeans(n_clusters=n_legit_clusters, random_state=42, n_init=10)
         kmeans_legit.fit(legit_embs)
-        
         for i, proto_name in enumerate(LEGIT_PROTOTYPES[:n_legit_clusters]):
-            legit_prototypes[proto_name] = kmeans_legit.cluster_centers_[i]
-            
-            cluster_samples = [emb for emb, label_cluster in zip(legit_embs, kmeans_legit.labels_) if label_cluster == i]
+            center = kmeans_legit.cluster_centers_[i]
+            legit_prototypes[proto_name] = center
+            cluster_samples = [emb for emb, cluster_label in zip(legit_embs, kmeans_legit.labels_) if cluster_label == i]
             if cluster_samples:
-                closest_idx = np.argmin([np.linalg.norm(emb - legit_prototypes[proto_name]) for emb in cluster_samples])
+                closest_idx = np.argmin([np.linalg.norm(emb - center) for emb in cluster_samples])
                 sample_text = legit_texts[closest_idx] if closest_idx < len(legit_texts) else "N/A"
                 LOGGER.info(f"  Legit prototype '{proto_name}': sample='{sample_text[:60]}...'")
     else:
-        LOGGER.warning(f"Not enough legit samples for {n_legit_clusters} clusters, using centroids")
+        LOGGER.warning(f"Not enough legit samples for {n_legit_clusters} clusters; using class centroid")
         legit_centroid = np.mean(legit_embs, axis=0)
         for proto_name in LEGIT_PROTOTYPES[:n_legit_clusters]:
             legit_prototypes[proto_name] = legit_centroid
-    
+
     return spam_prototypes, legit_prototypes
+
+async def compute_filter_scores(
+    texts: list[str],
+    keyword_filter: KeywordFilter,
+    tfidf_filter: TfidfFilter
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Run production filters to obtain keyword and TF-IDF scores."""
+    kw_scores: list[float] = []
+    tfidf_scores: list[float] = []
+    for text in texts:
+        keyword_result = await keyword_filter.analyze(text)
+        tfidf_result = await tfidf_filter.analyze(text)
+        kw_scores.append(float(keyword_result.score))
+        tfidf_scores.append(float(tfidf_result.score))
+
+    return np.array(kw_scores, dtype=float), np.array(tfidf_scores, dtype=float)
 
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
@@ -422,55 +437,68 @@ def build_feature_matrix(
 
 
 async def main():
-    LOGGER.info("="*60)
+    LOGGER.info("=" * 60)
     LOGGER.info("TRAINING CONTEXT-AWARE META CLASSIFIER")
-    LOGGER.info("="*60)
-    
-    # Пути
+    LOGGER.info("=" * 60)
+
     root_dir = Path(__file__).resolve().parents[1]
     dataset_path = root_dir / "data" / "messages.csv"
     models_dir = root_dir / "models"
     models_dir.mkdir(exist_ok=True)
-    
-    # Проверка датасета
+
     if not dataset_path.exists():
         LOGGER.error(f"Dataset not found: {dataset_path}")
         return
-    
-    # 1. Загрузка и чистка
+
     LOGGER.info("Step 1: Loading and cleaning dataset...")
     df = pd.read_csv(dataset_path)
     df = clean_dataset(df)
-    
-    texts = df['message'].tolist()
-    labels = df['label'].values
-    
-    # 2. Генерация капсул для E_msg
-    LOGGER.info("Step 2: Generating message capsules...")
+
+    texts = df["message"].tolist()
+    labels = df["label"].values
+
+    LOGGER.info("Step 2: Initializing filters (keyword, TF-IDF)...")
+    keyword_filter = KeywordFilter()
+    tfidf_filter = TfidfFilter()
+
+    if not keyword_filter.is_ready():
+        LOGGER.error("Keyword filter is not ready. Check data/keywords.json.")
+        return
+
+    if not tfidf_filter.is_ready():
+        LOGGER.error("TF-IDF model is not ready. Run scripts/train_tfidf.py first.")
+        return
+
+    LOGGER.info("Step 3: Computing filter scores with production filters...")
+    kw_scores, tfidf_scores = await compute_filter_scores(texts, keyword_filter, tfidf_filter)
+
+    LOGGER.info("Step 4: Generating message capsules...")
     capsules_msg = [f"passage: {normalize_entities(text)}" for text in texts]
-    
-    # 3. Получение эмбеддингов
-    LOGGER.info("Step 3: Computing embeddings via Ollama...")
+
+    LOGGER.info("Step 5: Computing embeddings via Ollama...")
     embeddings_msg = await get_embeddings_batch(
         capsules_msg,
         model=settings.OLLAMA_MODEL,
         base_url=settings.OLLAMA_BASE_URL
     )
-    
-    # Проверка валидности
+
     valid_count = sum(1 for emb in embeddings_msg if emb is not None)
-    LOGGER.info(f"Valid embeddings: {valid_count}/{len(embeddings_msg)} ({valid_count/len(embeddings_msg):.1%})")
-    
+    LOGGER.info(
+        f"Valid embeddings: {valid_count}/{len(embeddings_msg)} "
+        f"({valid_count/len(embeddings_msg):.1%})"
+    )
+
     if valid_count < len(embeddings_msg) * 0.8:
-        LOGGER.error("Too many failed embeddings. Check Ollama API.")
-        return
-    
-    # 4. Построение центроидов
-    LOGGER.info("Step 4: Building centroids...")
+        LOGGER.warning("Embedding coverage below 80% (%s/%s). Continuing with partial data.", valid_count, len(embeddings_msg))
+
+    if valid_count == 0:
+        LOGGER.warning("No embeddings available. Falling back to legacy-only feature set.")
+        embeddings_msg = [None for _ in embeddings_msg]
+
+    LOGGER.info("Step 6: Building centroids...")
     spam_centroid, ham_centroid = build_centroids(embeddings_msg, labels)
-    
-    # 5. Построение прототипов
-    LOGGER.info("Step 5: Building prototypes via K-means...")
+
+    LOGGER.info("Step 7: Building prototypes via K-means...")
     spam_prototypes, legit_prototypes = build_prototypes(
         embeddings_msg,
         labels,
@@ -478,18 +506,8 @@ async def main():
         n_spam_clusters=len(SPAM_PROTOTYPES),
         n_legit_clusters=len(LEGIT_PROTOTYPES)
     )
-    
-    # 6. Получение scores от фильтров (заглушка - в реальности нужно загрузить фильтры)
-    LOGGER.info("Step 6: Computing filter scores...")
-    # Для простоты заполняем случайными значениями
-    # В продакшене нужно загрузить KeywordFilter и TF-IDF и получить реальные scores
-    kw_scores = np.random.uniform(0, 1, len(texts))
-    tfidf_scores = np.random.uniform(0, 1, len(texts))
-    
-    LOGGER.warning("Using random filter scores (load real filters in production)")
-    
-    # 7. Построение матрицы фичей
-    LOGGER.info("Step 7: Building feature matrix...")
+
+    LOGGER.info("Step 8: Building feature matrix...")
     X, feature_names = build_feature_matrix(
         texts=texts,
         embeddings_msg=embeddings_msg,
@@ -500,129 +518,127 @@ async def main():
         kw_scores=kw_scores,
         tfidf_scores=tfidf_scores
     )
-    
-    # 8. Обучение с Group K-Fold (по user_id если доступен)
-    LOGGER.info("Step 8: Training with calibration...")
-    
-    # Group K-Fold требует groups - если нет user_id в датасете, используем обычный split
-    if 'user_id' in df.columns:
-        groups = df['user_id'].values
+
+    LOGGER.info("Step 9: Training with calibration...")
+    if "user_id" in df.columns:
+        groups = df["user_id"].values
         LOGGER.info("Using GroupKFold by user_id")
     else:
         groups = None
-        LOGGER.warning("No user_id column, using random split")
-    
-    # Обучаем LogisticRegression
-    logreg = LogisticRegression(
+        LOGGER.warning("No user_id column, falling back to standard CV")
+
+    base_logreg = LogisticRegression(
         max_iter=1000,
-        class_weight='balanced',
+        class_weight="balanced",
         random_state=42,
-        solver='liblinear'
+        solver="liblinear"
     )
-    
-    # Калибровка
+
     calibrator = CalibratedClassifierCV(
-        logreg,
-        method='sigmoid',
-        cv=3  # GroupKFold требует минимум 3 фолда
+        base_logreg,
+        method="sigmoid",
+        cv=3
     )
-    
+
     calibrator.fit(X, labels)
-    
-    # 9. Метрики
-    LOGGER.info("Step 9: Evaluating metrics...")
+
+    logreg_final = LogisticRegression(
+        max_iter=1000,
+        class_weight="balanced",
+        random_state=42,
+        solver="liblinear"
+    )
+    logreg_final.fit(X, labels)
+
+    LOGGER.info("Step 10: Evaluating metrics...")
     y_pred_proba = calibrator.predict_proba(X)[:, 1]
     y_pred = (y_pred_proba >= 0.5).astype(int)
-    
+
     roc_auc = roc_auc_score(labels, y_pred_proba)
     precision, recall, _ = precision_recall_curve(labels, y_pred_proba)
     pr_auc = auc(recall, precision)
     brier = brier_score_loss(labels, y_pred_proba)
-    
+    accuracy = float((y_pred == labels).mean())
+
+    LOGGER.info(f"Accuracy: {accuracy:.3f}")
     LOGGER.info(f"ROC-AUC: {roc_auc:.3f}")
     LOGGER.info(f"PR-AUC: {pr_auc:.3f}")
     LOGGER.info(f"Brier Score: {brier:.3f}")
-    
-    # Confusion matrix
+
     cm = confusion_matrix(labels, y_pred)
     LOGGER.info(f"Confusion Matrix:\n{cm}")
-    
-    # Classification report
     report = classification_report(labels, y_pred)
     LOGGER.info(f"Classification Report:\n{report}")
-    
-    # 10. Сохранение артефактов
-    LOGGER.info("Step 10: Saving artifacts...")
-    
-    # Модель (используем имя из config.py)
-    dump(logreg, models_dir / "meta_model.joblib")
+
+    cache_path = models_dir / "meta_eval_cache.npz"
+    np.savez_compressed(
+        cache_path,
+        kw_scores=kw_scores,
+        tfidf_scores=tfidf_scores,
+        meta_proba=y_pred_proba,
+        labels=labels
+    )
+    LOGGER.info(f"Saved: {cache_path}")
+
+    LOGGER.info("Step 11: Saving artifacts...")
+    dump(logreg_final, models_dir / "meta_model.joblib")
     LOGGER.info("Saved: meta_model.joblib")
-    
-    # Калибратор
+
     dump(calibrator, models_dir / "meta_calibrator.joblib")
     LOGGER.info("Saved: meta_calibrator.joblib")
-    
-    # Центроиды
+
     np.savez(
         models_dir / "centroids.npz",
         spam_centroid=spam_centroid,
         ham_centroid=ham_centroid
     )
     LOGGER.info("Saved: centroids.npz")
-    
-    # Прототипы
+
     prototypes_dict = {}
     for name, vec in spam_prototypes.items():
         prototypes_dict[f"spam_{name}"] = vec
     for name, vec in legit_prototypes.items():
         prototypes_dict[f"legit_{name}"] = vec
-    
+
     np.savez(models_dir / "prototypes.npz", **prototypes_dict)
     LOGGER.info("Saved: prototypes.npz")
-    
-    # Feature spec
+
     feature_spec = {
         "features": feature_names,
         "n_features": len(feature_names)
     }
-    
+
     with open(models_dir / "feature_spec.json", "w", encoding="utf-8") as f:
         json.dump(feature_spec, f, indent=2, ensure_ascii=False)
     LOGGER.info("Saved: feature_spec.json")
-    
-    # Отчет
+
     report_path = models_dir / "train_meta_report.txt"
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write("="*60 + "\n")
+        f.write("=" * 60 + "\n")
         f.write("CONTEXT-AWARE META CLASSIFIER TRAINING REPORT\n")
-        f.write("="*60 + "\n\n")
-        
+        f.write("=" * 60 + "\n\n")
         f.write(f"Dataset: {dataset_path}\n")
         f.write(f"Total samples: {len(texts)}\n")
         f.write(f"Spam: {(labels == 1).sum()}\n")
         f.write(f"Ham: {(labels == 0).sum()}\n\n")
-        
         f.write(f"Valid embeddings: {valid_count}/{len(embeddings_msg)}\n\n")
-        
         f.write(f"Features: {len(feature_names)}\n")
-        f.write(f"Feature names: {', '.join(feature_names[:10])}...\n\n")
-        
+        example_features = ", ".join(feature_names[:10]) if feature_names else ""
+        if example_features:
+            f.write(f"Feature names: {example_features}...\n\n")
+        else:
+            f.write("Feature names: <none>\n\n")
+        f.write(f"Accuracy: {accuracy:.3f}\n")
         f.write(f"ROC-AUC: {roc_auc:.3f}\n")
         f.write(f"PR-AUC: {pr_auc:.3f}\n")
         f.write(f"Brier Score: {brier:.3f}\n\n")
-        
         f.write("Confusion Matrix:\n")
         f.write(str(cm) + "\n\n")
-        
         f.write("Classification Report:\n")
         f.write(report + "\n")
-    
+
     LOGGER.info(f"Saved: {report_path}")
-    
-    LOGGER.info("="*60)
+
+    LOGGER.info("=" * 60)
     LOGGER.info("TRAINING COMPLETE")
-    LOGGER.info("="*60)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    LOGGER.info("=" * 60)
