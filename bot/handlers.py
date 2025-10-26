@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from pathlib import Path
 from collections import OrderedDict
@@ -33,7 +33,82 @@ from storage.interfaces import ModerationEventInput, ModerationActionInput
 from utils.logger import get_logger
 
 LOGGER = get_logger(__name__)
-STORAGE = init_storage()
+
+STORAGE = None
+keyword_filter: KeywordFilter | None = None
+tfidf_filter: TfidfFilter | None = None
+embedding_filter: EmbeddingFilter | None = None
+coordinator: FilterCoordinator | None = None
+policy_engine: PolicyEngine | None = None
+meta_classifier: MetaClassifier | None = None
+dataset_manager: DatasetManager | None = None
+runtime_config = None
+_INITIALIZED = False
+
+
+def _apply_runtime_to_policy_engine() -> None:
+    if policy_engine is None or runtime_config is None:
+        return
+    policy_engine.policy_mode = runtime_config.policy_mode
+    policy_engine.meta_notify = runtime_config.meta_notify
+    policy_engine.meta_delete = runtime_config.meta_delete
+    policy_engine.meta_kick = runtime_config.meta_kick
+    policy_engine.downweight_announcement = runtime_config.meta_downweight_announcement
+    policy_engine.downweight_reply_to_staff = runtime_config.meta_downweight_reply_to_staff
+    policy_engine.downweight_whitelist = runtime_config.meta_downweight_whitelist
+
+
+def _ensure_initialized() -> None:
+    global _INITIALIZED, STORAGE, keyword_filter, tfidf_filter, embedding_filter, coordinator, policy_engine, meta_classifier, dataset_manager, runtime_config
+    if _INITIALIZED:
+        return
+
+    STORAGE = init_storage()
+
+    keyword_filter_local = KeywordFilter()
+    tfidf_filter_local = TfidfFilter()
+    embedding_filter_local = EmbeddingFilter(
+        mode=settings.EMBEDDING_MODE,
+        api_key=settings.MISTRAL_API_KEY,
+        model_id=settings.EMBEDDING_MODEL_ID,
+        ollama_model=settings.OLLAMA_MODEL,
+        ollama_base_url=settings.OLLAMA_BASE_URL,
+    )
+
+    coordinator_local = FilterCoordinator(
+        keyword_filter=keyword_filter_local,
+        tfidf_filter=tfidf_filter_local,
+        embedding_filter=embedding_filter_local,
+    )
+
+    policy_engine_local = PolicyEngine()
+    meta_classifier_local = MetaClassifier()
+
+    from config.runtime import runtime_config as runtime_state
+
+    globals().update(
+        keyword_filter=keyword_filter_local,
+        tfidf_filter=tfidf_filter_local,
+        embedding_filter=embedding_filter_local,
+        coordinator=coordinator_local,
+        policy_engine=policy_engine_local,
+        meta_classifier=meta_classifier_local,
+        runtime_config=runtime_state,
+    )
+
+    _apply_runtime_to_policy_engine()
+
+    LOGGER.info('Policy configuration loaded:')
+    LOGGER.info('  MODE: %s', runtime_config.policy_mode)
+    LOGGER.info('  META_NOTIFY: %s', runtime_config.meta_notify)
+    LOGGER.info('  META_DELETE: %s', runtime_config.meta_delete)
+    LOGGER.info('  META_KICK: %s', runtime_config.meta_kick)
+    LOGGER.info('  META_CLASSIFIER_READY: %s', meta_classifier_local.is_ready())
+
+    data_path = Path(__file__).resolve().parents[1] / 'data' / 'messages.csv'
+    globals()['dataset_manager'] = DatasetManager(data_path)
+
+    _INITIALIZED = True
 
 
 @dataclass(slots=True)
@@ -73,52 +148,24 @@ def _extract_event_confidence(analysis: AnalysisResult, decision_details: dict |
         return float(analysis.meta_proba)
     return float(analysis.average_score)
 
-keyword_filter = KeywordFilter()
-tfidf_filter = TfidfFilter()
-embedding_filter = EmbeddingFilter(
-    mode=settings.EMBEDDING_MODE,
-    api_key=settings.MISTRAL_API_KEY,
-    model_id=settings.EMBEDDING_MODEL_ID,
-    ollama_model=settings.OLLAMA_MODEL,
-    ollama_base_url=settings.OLLAMA_BASE_URL
-)
 
-coordinator = FilterCoordinator(
-    keyword_filter=keyword_filter,
-    tfidf_filter=tfidf_filter,
-    embedding_filter=embedding_filter
-)
-
-policy_engine = PolicyEngine()  # Reads config from runtime_config singleton
-
-# NEW: Мета-классификатор
-meta_classifier = MetaClassifier()
-
-# Логируем загруженную конфигурацию политики
-from config.runtime import runtime_config
-LOGGER.info(f"Policy configuration loaded:")
-LOGGER.info(f"  MODE: {runtime_config.policy_mode}")
-LOGGER.info(f"  META_NOTIFY: {runtime_config.meta_notify}")
-LOGGER.info(f"  META_DELETE: {runtime_config.meta_delete}")
-LOGGER.info(f"  META_KICK: {runtime_config.meta_kick}")
-LOGGER.info(f"  META_CLASSIFIER_READY: {meta_classifier.is_ready()}")
+def _compact_analysis(analysis: AnalysisResult) -> AnalysisResult:
+    """Drop heavy payloads before caching analysis snapshots."""
+    embedding_result = analysis.embedding_result
+    if embedding_result and embedding_result.details:
+        pruned_details = dict(embedding_result.details)
+        pruned_details.pop("embedding", None)
+        embedding_result = replace(embedding_result, details=pruned_details)
+    
+    return replace(
+        analysis,
+        context_capsule=None,
+        user_capsule=None,
+        embedding_vectors=None,
+        embedding_result=embedding_result,
+    )
 
 
-def _apply_runtime_to_policy_engine() -> None:
-    policy_engine.policy_mode = runtime_config.policy_mode
-    policy_engine.meta_notify = runtime_config.meta_notify
-    policy_engine.meta_delete = runtime_config.meta_delete
-    policy_engine.meta_kick = runtime_config.meta_kick
-    policy_engine.downweight_announcement = runtime_config.meta_downweight_announcement
-    policy_engine.downweight_reply_to_staff = runtime_config.meta_downweight_reply_to_staff
-    policy_engine.downweight_whitelist = runtime_config.meta_downweight_whitelist
-
-
-_apply_runtime_to_policy_engine()
-
-dataset_manager = DatasetManager(
-    Path(__file__).resolve().parents[1] / "data" / "messages.csv"
-)
 
 # Ограничения для буферов, чтобы не допускать неконтролируемого роста памяти
 MAX_PENDING_QUEUE = 200
@@ -177,6 +224,7 @@ async def announce_block(
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _ensure_initialized()
     msg: Message = update.effective_message
     if not msg or not msg.from_user:
         return
@@ -224,7 +272,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 )
                 
                 # Создаем новый AnalysisResult с мета-данными
-                from dataclasses import replace
                 analysis = replace(analysis, meta_proba=p_spam, meta_debug=meta_debug)
         except Exception as e:
             LOGGER.error(f"MetaClassifier failed: {e}", exc_info=True)
@@ -273,6 +320,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     except Exception as exc:
         LOGGER.warning(f"Failed to record moderation event: {exc}")
 
+    analysis_compact = _compact_analysis(analysis)
+
     if action == Action.APPROVE:
         return
     
@@ -291,7 +340,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "message_id": msg.message_id,
         "text": text,
         "msg_link": msg_link,
-        "analysis": analysis,
+        "analysis": analysis_compact,
         "action": action,
         "decision_details": decision_details,  # Добавляем детали решения
         "event_id": event_id,
@@ -311,7 +360,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         action=action,
         chat_id=msg.chat_id,
         message_id=msg.message_id,
-        decision_details=decision_details  # Передаём decision_details
+        decision_details=decision_details
     )
     
     # Отправляем карточку модератору
@@ -332,7 +381,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             text=text,
             offender_name=msg.from_user.full_name,
             offender_id=msg.from_user.id,
-            analysis=analysis,
+            analysis=analysis_compact,
             event_id=event_id,
             created_ts=time.time(),
         )
@@ -361,6 +410,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    _ensure_initialized()
     q = update.callback_query
     if not q:
         return
@@ -452,6 +502,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def cmd_status(update: Update, _):
+    _ensure_initialized()
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
     
@@ -492,6 +543,7 @@ async def cmd_status(update: Update, _):
 
 
 async def cmd_retrain(update: Update, _):
+    _ensure_initialized()
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
     await update.effective_message.reply_text("⏳ Переобучаю TF-IDF модель…")
@@ -501,6 +553,7 @@ async def cmd_retrain(update: Update, _):
 
 
 async def cmd_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _ensure_initialized()
     """Команда /debug N - показывает детальную информацию о спаме №N"""
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
@@ -548,6 +601,7 @@ async def cmd_debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_setpolicy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _ensure_initialized()
     """Изменить режим политики в runtime"""
     if not is_explicit_command(update):
         return
@@ -606,6 +660,7 @@ async def cmd_setpolicy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    _ensure_initialized()
     """Изменить порог фильтра в runtime"""
     if not is_explicit_command(update):
         return
@@ -703,6 +758,7 @@ async def cmd_setthreshold(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return
 
 async def cmd_setdownweight(update: Update, context):
+    _ensure_initialized()
     """Изменить понижающий множитель"""
     if not is_explicit_command(update):
         return
@@ -781,6 +837,7 @@ async def cmd_setdownweight(update: Update, context):
     return
 
 async def cmd_resetconfig(update: Update, _):
+    _ensure_initialized()
     """Сбросить все изменения конфигурации к значениям по умолчанию"""
     if not is_explicit_command(update):
         return
@@ -816,6 +873,7 @@ async def cmd_resetconfig(update: Update, _):
 
 
 async def cmd_start(update: Update, _):
+    _ensure_initialized()
     if not is_explicit_command(update):
         return
 
@@ -838,6 +896,7 @@ async def cmd_start(update: Update, _):
 
 
 async def cmd_help(update: Update, _):
+    _ensure_initialized()
     if not is_explicit_command(update):
         return
 
@@ -875,6 +934,7 @@ async def cmd_help(update: Update, _):
 
 
 async def cmd_meta_info(update: Update, _):
+    _ensure_initialized()
     """Информация о мета-классификаторе"""
     if not update.effective_user or not is_whitelisted(update.effective_user.id):
         return
@@ -919,6 +979,7 @@ async def cmd_meta_info(update: Update, _):
 
 
 def register_handlers(app: Application) -> None:
+    _ensure_initialized()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("status", cmd_status))

@@ -271,7 +271,10 @@ class FilterCoordinator:
             )
             
             # Legacy FilterResult для обратной совместимости
-            embedding_result = await self.embedding_filter.analyze(text)
+            embedding_result = self.embedding_filter.build_result_from_vectors(
+                vectors=embedding_vectors,
+                debug_info=emb_debug
+            )
         
         # Шаг 4: Обновляем историю (ПОСЛЕ анализа)
         if metadata:

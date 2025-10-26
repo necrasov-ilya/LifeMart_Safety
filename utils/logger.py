@@ -21,50 +21,48 @@ from typing import Optional
 from config.config import settings
 from storage import init_storage
 
-# ───────────────────────────────
 # Параметры форматирования
-# ───────────────────────────────
 LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 LOG_FMT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 DATE_FMT = "%Y-%m-%d %H:%M:%S"
 LOG_LEVEL = getattr(logging, settings.LOG_LEVEL, logging.INFO)
+_ROOT_LOGGER_INITIALIZED = False
 
 def _init_root_logger() -> None:
-    """Настроить root-логгер только один раз."""
-    root = logging.getLogger()
-    if root.handlers:  # уже настроен (например, pytest)
+    """????????? root-?????? ?????? ???? ???."""
+    global _ROOT_LOGGER_INITIALIZED
+    if _ROOT_LOGGER_INITIALIZED:
         return
 
-    root.setLevel(LOG_LEVEL)
+    root = logging.getLogger()
+    if not root.handlers:
+        root.setLevel(LOG_LEVEL)
 
-    # — консоль —
-    console = logging.StreamHandler(sys.stdout)
-    console.setFormatter(logging.Formatter(LOG_FMT, DATE_FMT))
-    root.addHandler(console)
+        console = logging.StreamHandler(sys.stdout)
+        console.setFormatter(logging.Formatter(LOG_FMT, DATE_FMT))
+        root.addHandler(console)
 
-    # — файл с ротацией —
-    file_handler = RotatingFileHandler(
-        LOG_DIR / "bot.log",
-        maxBytes=2_000_000,       # ~2 MB
-        backupCount=3,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(logging.Formatter(LOG_FMT, DATE_FMT))
-    root.addHandler(file_handler)
+        file_handler = RotatingFileHandler(
+            LOG_DIR / "bot.log",
+            maxBytes=2_000_000,       # ~2 MB
+            backupCount=3,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter(LOG_FMT, DATE_FMT))
+        root.addHandler(file_handler)
 
-    try:
-        sqlite_handler = _SQLiteLogHandler()
-        sqlite_handler.setLevel(logging.WARNING)
-        root.addHandler(sqlite_handler)
-    except Exception:
-        # storage initialisation should not break logging on failure
-        pass
+        try:
+            sqlite_handler = _SQLiteLogHandler()
+            sqlite_handler.setLevel(logging.WARNING)
+            root.addHandler(sqlite_handler)
+        except Exception:
+            # storage initialisation should not break logging on failure
+            pass
 
+    _ROOT_LOGGER_INITIALIZED = True
 
-# Инициализируем немедленно при импорте
-_init_root_logger()
 
 
 class _SQLiteLogHandler(logging.Handler):
@@ -106,6 +104,7 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         logger = get_logger(__name__)
         logger.info("Hello!")
     """
+    _init_root_logger()
     return logging.getLogger(name or "root")
 
 

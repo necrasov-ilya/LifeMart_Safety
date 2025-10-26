@@ -18,9 +18,7 @@ import unicodedata
 from typing import List, Dict, Tuple
 
 
-# ═══════════════════════════════════════════════════════════════════
 # WHITELIST СЛОВАРИ (анти-паттерны для снижения p_spam)
-# ═══════════════════════════════════════════════════════════════════
 
 STORE_TERMS = {
     # Магазин/продажи
@@ -58,9 +56,7 @@ _ORDER_TERMS_LOWER = {term.lower() for term in ORDER_TERMS}
 _BRAND_TERMS_LOWER = {term.lower() for term in BRAND_TERMS}
 
 
-# ═══════════════════════════════════════════════════════════════════
 # НОРМАЛИЗАЦИЯ СУЩНОСТЕЙ
-# ═══════════════════════════════════════════════════════════════════
 
 def normalize_entities(text: str) -> str:
     """
@@ -165,9 +161,7 @@ def normalize_entities(text: str) -> str:
     return normalized
 
 
-# ═══════════════════════════════════════════════════════════════════
 # ПОСТРОЕНИЕ КАПСУЛ
-# ═══════════════════════════════════════════════════════════════════
 
 def build_context_capsule(
     message: str,
@@ -313,9 +307,7 @@ def build_user_capsule(
     return capsule
 
 
-# ═══════════════════════════════════════════════════════════════════
 # WHITELIST АНАЛИЗ
-# ═══════════════════════════════════════════════════════════════════
 
 def count_whitelist_hits(text: str) -> Tuple[int, int, int]:
     """
@@ -339,9 +331,7 @@ def count_whitelist_hits(text: str) -> Tuple[int, int, int]:
     return store_hits, order_hits, brand_hits
 
 
-# ═══════════════════════════════════════════════════════════════════
 # ОБРАТНАЯ СОВМЕСТИМОСТЬ (старая функция для TF-IDF/Keyword)
-# ═══════════════════════════════════════════════════════════════════
 
 def prepare_for_embedding(text: str) -> str:
     """
@@ -360,9 +350,7 @@ def prepare_for_embedding(text: str) -> str:
     return f"passage: {normalized}"
 
 
-# ═══════════════════════════════════════════════════════════════════
 # ПАТТЕРН-ФИЧИ (для мета-классификатора)
-# ═══════════════════════════════════════════════════════════════════
 
 
 def prepare_for_embedding(text: str) -> str:

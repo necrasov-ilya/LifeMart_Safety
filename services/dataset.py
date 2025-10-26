@@ -3,8 +3,6 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-import pandas as pd
-
 from utils.logger import get_logger
 
 LOGGER = get_logger(__name__)
@@ -19,22 +17,34 @@ class DatasetManager:
         if not self.dataset_path.exists():
             LOGGER.warning(f"Dataset not found, creating: {self.dataset_path}")
             self.dataset_path.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame(columns=["message", "label"]).to_csv(self.dataset_path, index=False)
+            with open(self.dataset_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["message", "label"])
     
     def add_sample(self, message: str, label: int) -> bool:
         if label not in (0, 1):
             raise ValueError("Label must be 0 or 1")
         
         try:
-            df = pd.read_csv(self.dataset_path)
-            duplicate_mask = (df["message"] == message) & (df["label"] == label)
-            
-            if duplicate_mask.any():
-                LOGGER.debug("Sample already exists")
-                return False
-            
-            df.loc[len(df)] = [message, label]
-            df.to_csv(self.dataset_path, index=False)
+            with open(self.dataset_path, newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if len(row) != 2:
+                        continue
+                    existing_message, existing_label = row
+                    try:
+                        existing_label_int = int(existing_label)
+                    except ValueError:
+                        continue
+                    if existing_message == message and existing_label_int == label:
+                        LOGGER.debug("Sample already exists")
+                        return False
+
+            with open(self.dataset_path, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([message, label])
+
             LOGGER.info(f"Added sample: {message[:50]}... | label={label}")
             return True
         except Exception as e:

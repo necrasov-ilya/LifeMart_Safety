@@ -19,9 +19,7 @@ from utils.logger import get_logger
 LOGGER = get_logger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════════════
 # LRU КЭШИРОВАНИЕ USER ЭМБЕДДИНГОВ
-# ═══════════════════════════════════════════════════════════════════
 
 @dataclass
 class CachedEmbedding:
@@ -86,14 +84,10 @@ class EmbeddingCache:
         return len(self._cache)
 
 
-# ═══════════════════════════════════════════════════════════════════
 # ПРОВАЙДЕРЫ ЭМБЕДДИНГОВ
-# ═══════════════════════════════════════════════════════════════════
 
 
-# ═══════════════════════════════════════════════════════════════════
 # ПРОВАЙДЕРЫ ЭМБЕДДИНГОВ
-# ═══════════════════════════════════════════════════════════════════
 
 class EmbeddingProvider(ABC):
     """Абстрактный провайдер эмбеддингов с поддержкой пакетного расчета."""
@@ -313,9 +307,7 @@ class LocalModelProvider(EmbeddingProvider):
         return [None] * len(texts), "Not implemented"
 
 
-# ═══════════════════════════════════════════════════════════════════
 # EMBEDDING FILTER С МУЛЬТИ-ЭМБЕДДИНГОМ И КЭШЕМ
-# ═══════════════════════════════════════════════════════════════════
 
 class EmbeddingFilter(BaseFilter):
     """
@@ -494,6 +486,45 @@ class EmbeddingFilter(BaseFilter):
                 EmbeddingVectors(E_msg=None, E_ctx=None, E_user=None),
                 {"error": str(e)}
             )
+    
+    def build_result_from_vectors(
+        self,
+        vectors: EmbeddingVectors | None,
+        debug_info: Dict[str, any] | None = None
+    ) -> FilterResult:
+        """
+        ������������ �������� FilterResult �� �������������� ����������.
+        ��������� ���������� ���������� ������������ ��� legacy-������.
+        """
+        debug_info = debug_info or {}
+        vectors = vectors or EmbeddingVectors()
+        
+        details: Dict[str, any] = {
+            "embedding": vectors.E_msg,
+            "has_context": bool(vectors.E_ctx),
+            "has_user": bool(vectors.E_user),
+        }
+        
+        for key in (
+            "status",
+            "fallback_msg",
+            "fallback_ctx",
+            "degraded_ctx",
+            "degraded_user",
+            "elapsed_ms",
+            "error",
+        ):
+            if key in debug_info:
+                details[key] = debug_info[key]
+        
+        confidence = 1.0 if vectors.E_msg else 0.0
+        
+        return FilterResult(
+            filter_name=self.name,
+            score=0.5,
+            confidence=confidence,
+            details=details
+        )
     
     def invalidate_user_cache(self, user_id: int) -> None:
         """Инвалидировать кэш для пользователя (вызывать при новом сообщении)"""
