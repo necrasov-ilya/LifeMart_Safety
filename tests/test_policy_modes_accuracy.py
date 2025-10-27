@@ -32,7 +32,7 @@ class PolicyModeAccuracyTest(unittest.TestCase):
 
         messages: list[str] = []
         labels: list[int] = []
-        with dataset_path.open("r", encoding="utf-8") as dataset_file:
+        with dataset_path.open("r", encoding="utf-8", errors="strict") as dataset_file:
             reader = csv.DictReader(dataset_file)
             for row in reader:
                 try:

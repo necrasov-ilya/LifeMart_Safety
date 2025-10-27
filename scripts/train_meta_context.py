@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import train_test_split
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     roc_auc_score,
@@ -451,7 +451,7 @@ async def main():
         return
 
     LOGGER.info("Step 1: Loading and cleaning dataset...")
-    df = pd.read_csv(dataset_path)
+    df = pd.read_csv(dataset_path, encoding="utf-8", encoding_errors="strict")
     df = clean_dataset(df)
 
     texts = df["message"].tolist()
@@ -520,12 +520,16 @@ async def main():
     )
 
     LOGGER.info("Step 9: Training with calibration...")
-    if "user_id" in df.columns:
-        groups = df["user_id"].values
-        LOGGER.info("Using GroupKFold by user_id")
-    else:
-        groups = None
-        LOGGER.warning("No user_id column, falling back to standard CV")
+    X_train, X_val, y_train, y_val, kw_train, kw_val, tfidf_train, tfidf_val = train_test_split(
+        X,
+        labels,
+        kw_scores,
+        tfidf_scores,
+        test_size=0.2,
+        random_state=42,
+        stratify=labels
+    )
+    LOGGER.info(f"Train size: {len(y_train)}, validation size: {len(y_val)}")
 
     base_logreg = LogisticRegression(
         max_iter=1000,
@@ -539,8 +543,7 @@ async def main():
         method="sigmoid",
         cv=3
     )
-
-    calibrator.fit(X, labels)
+    calibrator.fit(X_train, y_train)
 
     logreg_final = LogisticRegression(
         max_iter=1000,
@@ -548,34 +551,35 @@ async def main():
         random_state=42,
         solver="liblinear"
     )
-    logreg_final.fit(X, labels)
+    logreg_final.fit(X_train, y_train)
 
-    LOGGER.info("Step 10: Evaluating metrics...")
-    y_pred_proba = calibrator.predict_proba(X)[:, 1]
-    y_pred = (y_pred_proba >= 0.5).astype(int)
+    LOGGER.info("Step 10: Evaluating metrics on validation set...")
+    y_pred_proba_val = calibrator.predict_proba(X_val)[:, 1]
+    y_pred_val = (y_pred_proba_val >= 0.5).astype(int)
 
-    roc_auc = roc_auc_score(labels, y_pred_proba)
-    precision, recall, _ = precision_recall_curve(labels, y_pred_proba)
+    roc_auc = roc_auc_score(y_val, y_pred_proba_val)
+    precision, recall, _ = precision_recall_curve(y_val, y_pred_proba_val)
     pr_auc = auc(recall, precision)
-    brier = brier_score_loss(labels, y_pred_proba)
-    accuracy = float((y_pred == labels).mean())
+    brier = brier_score_loss(y_val, y_pred_proba_val)
+    accuracy = float((y_pred_val == y_val).mean())
 
     LOGGER.info(f"Accuracy: {accuracy:.3f}")
     LOGGER.info(f"ROC-AUC: {roc_auc:.3f}")
     LOGGER.info(f"PR-AUC: {pr_auc:.3f}")
     LOGGER.info(f"Brier Score: {brier:.3f}")
 
-    cm = confusion_matrix(labels, y_pred)
+    cm = confusion_matrix(y_val, y_pred_val)
     LOGGER.info(f"Confusion Matrix:\n{cm}")
-    report = classification_report(labels, y_pred)
+    report = classification_report(y_val, y_pred_val)
     LOGGER.info(f"Classification Report:\n{report}")
 
+    full_meta_proba = calibrator.predict_proba(X)[:, 1]
     cache_path = models_dir / "meta_eval_cache.npz"
     np.savez_compressed(
         cache_path,
         kw_scores=kw_scores,
         tfidf_scores=tfidf_scores,
-        meta_proba=y_pred_proba,
+        meta_proba=full_meta_proba,
         labels=labels
     )
     LOGGER.info(f"Saved: {cache_path}")
@@ -621,6 +625,7 @@ async def main():
         f.write(f"Total samples: {len(texts)}\n")
         f.write(f"Spam: {(labels == 1).sum()}\n")
         f.write(f"Ham: {(labels == 0).sum()}\n\n")
+        f.write(f"Train size: {len(y_train)} | Validation size: {len(y_val)}\n\n")
         f.write(f"Valid embeddings: {valid_count}/{len(embeddings_msg)}\n\n")
         f.write(f"Features: {len(feature_names)}\n")
         example_features = ", ".join(feature_names[:10]) if feature_names else ""
@@ -628,6 +633,7 @@ async def main():
             f.write(f"Feature names: {example_features}...\n\n")
         else:
             f.write("Feature names: <none>\n\n")
+        f.write("Validation metrics:\n")
         f.write(f"Accuracy: {accuracy:.3f}\n")
         f.write(f"ROC-AUC: {roc_auc:.3f}\n")
         f.write(f"PR-AUC: {pr_auc:.3f}\n")
