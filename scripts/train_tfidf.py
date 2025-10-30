@@ -32,7 +32,7 @@ def main():
         LOGGER.error("Dataset not found")
         return
     
-    df = pd.read_csv(dataset_path, encoding="utf-8", encoding_errors="strict")
+    df = pd.read_csv(dataset_path)
     if len(df) < 10:
         LOGGER.warning("Dataset too small for evaluation")
         return

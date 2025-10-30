@@ -49,7 +49,7 @@ class TfidfFilter(BaseFilter):
             return
         
         try:
-            df = pd.read_csv(self.dataset_path, encoding="utf-8", encoding_errors="strict")
+            df = pd.read_csv(self.dataset_path)
             if len(df) == 0:
                 LOGGER.error("Dataset is empty")
                 return
@@ -118,7 +118,7 @@ class TfidfFilter(BaseFilter):
             return False
         
         try:
-            df = pd.read_csv(self.dataset_path, encoding="utf-8", encoding_errors="strict")
+            df = pd.read_csv(self.dataset_path)
             duplicate_mask = (df["message"] == message) & (df["label"] == label)
             if duplicate_mask.any():
                 LOGGER.debug("Sample already exists in dataset")
