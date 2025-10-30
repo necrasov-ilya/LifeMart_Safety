@@ -10,10 +10,10 @@ Policy Engine для контекстного анализа спама с тр�
 
 ПОНИЖАЮЩИЕ МНОЖИТЕЛИ:
 Применяются ПЕРЕД сравнением с порогами:
-- is_channel_announcement → META_DOWNWEIGHT_ANNOUNCEMENT (0.85)
-- reply_to_staff → META_DOWNWEIGHT_REPLY_TO_STAFF (0.90)
-- whitelist_hits > 0 → META_DOWNWEIGHT_WHITELIST (0.85)
- - brand_hits > 0 → ДОПОЛНИТЕЛЬНО META_DOWNWEIGHT_BRAND (усиливает влияние брендов)
+- is_channel_announcement -> META_DOWNWEIGHT_ANNOUNCEMENT (0.85)
+- reply_to_staff -> META_DOWNWEIGHT_REPLY_TO_STAFF (0.90)
+- whitelist_hits > 0 -> META_DOWNWEIGHT_WHITELIST (0.85)
+ - brand_hits > 0 -> ДОПОЛНИТЕЛЬНО META_DOWNWEIGHT_BRAND (усиливает влияние брендов)
 
 Множители накладываются мультипликативно.
 """
@@ -53,8 +53,8 @@ class PolicyEngine:
         self.downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
         self.downweight_brand = settings.META_DOWNWEIGHT_BRAND
         # Legacy thresholds (keyword-first hysteresis)
-        self.legacy_keyword_threshold = 0.60
-        self.legacy_tfidf_threshold = self.meta_notify
+        self.legacy_keyword_threshold = getattr(settings, "LEGACY_KEYWORD_THRESHOLD", 0.60)
+        self.legacy_tfidf_threshold = getattr(settings, "LEGACY_TFIDF_THRESHOLD", self.meta_notify)
         
         LOGGER.info(
             f"PolicyEngine initialized: mode={self.policy_mode}, "
@@ -119,7 +119,7 @@ class PolicyEngine:
         }
         
         LOGGER.info(
-            f"Decision: {action.name} | p_spam: {p_spam_original:.3f} → {p_spam_adjusted:.3f} | "
+            f"Decision: {action.name} | p_spam: {p_spam_original:.3f} -> {p_spam_adjusted:.3f} | "
             f"mode={self.policy_mode} | downweights={len(applied_downweights)}"
         )
         

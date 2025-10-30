@@ -48,6 +48,8 @@ class Settings:
     META_DOWNWEIGHT_REPLY_TO_STAFF: float
     META_DOWNWEIGHT_WHITELIST: float
     META_DOWNWEIGHT_BRAND: float
+    LEGACY_KEYWORD_THRESHOLD: float
+    LEGACY_TFIDF_THRESHOLD: float
     
     # NEW: Настройки контекста и эмбеддингов
     EMBEDDING_TIMEOUT_MS: int
@@ -121,6 +123,8 @@ def _build_settings() -> Settings:
     meta_downweight_reply_to_staff = float(os.environ.get("META_DOWNWEIGHT_REPLY_TO_STAFF", "0.90"))
     meta_downweight_whitelist = float(os.environ.get("META_DOWNWEIGHT_WHITELIST", "0.85"))
     meta_downweight_brand = float(os.environ.get("META_DOWNWEIGHT_BRAND", "0.70"))
+    legacy_keyword_threshold = float(os.environ.get("LEGACY_KEYWORD_THRESHOLD", "0.60"))
+    legacy_tfidf_threshold = float(os.environ.get("LEGACY_TFIDF_THRESHOLD", str(meta_notify)))
     
     # NEW: Настройки контекста и эмбеддингов
     embedding_timeout_ms = int(os.environ.get("EMBEDDING_TIMEOUT_MS", "800"))
@@ -157,6 +161,8 @@ def _build_settings() -> Settings:
         META_DOWNWEIGHT_REPLY_TO_STAFF=meta_downweight_reply_to_staff,
         META_DOWNWEIGHT_WHITELIST=meta_downweight_whitelist,
         META_DOWNWEIGHT_BRAND=meta_downweight_brand,
+        LEGACY_KEYWORD_THRESHOLD=legacy_keyword_threshold,
+        LEGACY_TFIDF_THRESHOLD=legacy_tfidf_threshold,
         EMBEDDING_TIMEOUT_MS=embedding_timeout_ms,
         EMBEDDING_ENABLE_USER=embedding_enable_user,
         CONTEXT_HISTORY_N=context_history_n,

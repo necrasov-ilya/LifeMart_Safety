@@ -178,14 +178,21 @@ class MetaClassifier:
         )
     
     def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
-        """Вычисляет косинусное сходство между двумя векторами."""
+        """Cosine similarity with defensive checks for zero vectors and shape mismatches."""
+        if vec1 is None or vec2 is None:
+            return 0.0
+
+        if vec1.shape != vec2.shape:
+            LOGGER.debug("Embedding dimension mismatch: %s vs %s", vec1.shape, vec2.shape)
+            return 0.0
+
         dot = np.dot(vec1, vec2)
         norm1 = np.linalg.norm(vec1)
         norm2 = np.linalg.norm(vec2)
-        
+
         if norm1 == 0 or norm2 == 0:
             return 0.0
-        
+
         return float(dot / (norm1 * norm2))
     
     def _build_features(
