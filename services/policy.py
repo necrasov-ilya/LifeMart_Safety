@@ -53,8 +53,8 @@ class PolicyEngine:
         self.downweight_whitelist = settings.META_DOWNWEIGHT_WHITELIST
         self.downweight_brand = settings.META_DOWNWEIGHT_BRAND
         # Legacy thresholds (keyword-first hysteresis)
-        self.legacy_keyword_threshold = 0.60
-        self.legacy_tfidf_threshold = self.meta_notify
+        self.legacy_keyword_threshold = getattr(settings, "LEGACY_KEYWORD_THRESHOLD", 0.60)
+        self.legacy_tfidf_threshold = getattr(settings, "LEGACY_TFIDF_THRESHOLD", self.meta_notify)
         
         LOGGER.info(
             f"PolicyEngine initialized: mode={self.policy_mode}, "
