@@ -48,7 +48,7 @@ class EmbeddingVectors:
 class AnalysisResult:
     keyword_result: FilterResult
     tfidf_result: FilterResult
-    embedding_result: FilterResult | None = None
+    embedding_result: FilterResult | None
     meta_proba: float | None = None  # Вероятность спама от MetaClassifier
     meta_debug: dict | None = None   # Отладочная информация от MetaClassifier
     
@@ -59,7 +59,6 @@ class AnalysisResult:
     embedding_vectors: EmbeddingVectors | None = None
     applied_downweights: List[str] = field(default_factory=list)  # Примененные множители
     degraded_ctx: bool = False
-    legacy_tfidf_result: FilterResult | None = None
     
     @property
     def average_score(self) -> float:

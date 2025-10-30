@@ -37,7 +37,6 @@ LOGGER = get_logger(__name__)
 STORAGE = None
 keyword_filter: KeywordFilter | None = None
 tfidf_filter: TfidfFilter | None = None
-legacy_tfidf_filter: TfidfFilter | None = None
 embedding_filter: EmbeddingFilter | None = None
 coordinator: FilterCoordinator | None = None
 policy_engine: PolicyEngine | None = None
@@ -68,9 +67,6 @@ def _ensure_initialized() -> None:
 
     keyword_filter_local = KeywordFilter()
     tfidf_filter_local = TfidfFilter()
-    legacy_tfidf_filter_local = TfidfFilter(
-        model_path=Path(__file__).resolve().parents[1] / 'models' / 'tfidf_legacy_model.pkl'
-    )
     embedding_filter_local = EmbeddingFilter(
         mode=settings.EMBEDDING_MODE,
         api_key=settings.MISTRAL_API_KEY,
@@ -83,7 +79,6 @@ def _ensure_initialized() -> None:
         keyword_filter=keyword_filter_local,
         tfidf_filter=tfidf_filter_local,
         embedding_filter=embedding_filter_local,
-        legacy_tfidf_filter=legacy_tfidf_filter_local,
     )
 
     policy_engine_local = PolicyEngine()
@@ -94,7 +89,6 @@ def _ensure_initialized() -> None:
     globals().update(
         keyword_filter=keyword_filter_local,
         tfidf_filter=tfidf_filter_local,
-        legacy_tfidf_filter=legacy_tfidf_filter_local,
         embedding_filter=embedding_filter_local,
         coordinator=coordinator_local,
         policy_engine=policy_engine_local,
