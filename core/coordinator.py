@@ -29,12 +29,14 @@ class FilterCoordinator:
         keyword_filter: BaseFilter,
         tfidf_filter: BaseFilter,
         embedding_filter: EmbeddingFilter | None = None,
+        legacy_tfidf_filter: BaseFilter | None = None,
         context_history_n: int = 4,
         context_max_tokens: int = 512
     ):
         self.keyword_filter = keyword_filter
         self.tfidf_filter = tfidf_filter
         self.embedding_filter = embedding_filter
+        self.legacy_tfidf_filter = legacy_tfidf_filter
         
         self.context_history_n = context_history_n
         self.context_max_tokens = context_max_tokens
@@ -203,6 +205,15 @@ class FilterCoordinator:
         tfidf_result = await self.tfidf_filter.analyze(text)
         LOGGER.debug(f"TF-IDF: {tfidf_result.score:.2f}")
         
+        legacy_tfidf_result = None
+        if self.legacy_tfidf_filter and self.legacy_tfidf_filter.is_ready():
+            try:
+                legacy_tfidf_result = await self.legacy_tfidf_filter.analyze(text)
+                LOGGER.debug(f"Legacy TF-IDF: {legacy_tfidf_result.score:.2f}")
+            except Exception as exc:
+                LOGGER.warning(f"Legacy TF-IDF failed: {exc}")
+                legacy_tfidf_result = None
+        
         # Шаг 3: Формируем капсулы для эмбеддингов
         context_capsule = None
         user_capsule = None
@@ -294,7 +305,8 @@ class FilterCoordinator:
             context_capsule=context_capsule,
             user_capsule=user_capsule,
             embedding_vectors=embedding_vectors,
-            degraded_ctx=degraded_ctx_flag
+            degraded_ctx=degraded_ctx_flag,
+            legacy_tfidf_result=legacy_tfidf_result
         )
         
         LOGGER.info(

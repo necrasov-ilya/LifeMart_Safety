@@ -128,7 +128,8 @@ class PolicyEngine:
     def _decide_legacy_manual(self, analysis: AnalysisResult) -> Tuple[Action, Dict]:
         """Fallback logic that emulates legacy keyword + TF-IDF flow."""
         keyword_score = analysis.keyword_result.score if analysis.keyword_result else 0.0
-        tfidf_score = analysis.tfidf_result.score if analysis.tfidf_result else 0.0
+        legacy_tfidf = analysis.legacy_tfidf_result or analysis.tfidf_result
+        tfidf_score = legacy_tfidf.score if legacy_tfidf else 0.0
 
         action = Action.APPROVE
         trigger = None
@@ -177,6 +178,7 @@ class PolicyEngine:
             "legacy_action": action.value,
             "legacy_keyword_score": float(keyword_score),
             "legacy_tfidf_score": float(tfidf_score),
+            "legacy_tfidf_source": "legacy" if analysis.legacy_tfidf_result else "current",
             "legacy_keyword_threshold": float(self.legacy_keyword_threshold),
             "legacy_tfidf_threshold": float(self.legacy_tfidf_threshold),
             "legacy_trigger": trigger,
